@@ -1,0 +1,30 @@
+{
+  "permissions": {
+    "allow": [
+      "Skill(superpowers:brainstorm)",
+      "Bash(git -C /Users/purp/work/amphigory log --oneline -10)",
+      "WebFetch(domain:gollum)",
+      "WebFetch(domain:gollum.meyer.home)",
+      "Bash(curl:*)",
+      "Bash(diskutil list:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(HandBrakeCLI:*)",
+      "Bash(makemkvcon:*)",
+      "WebSearch",
+      "Bash(git remote add:*)",
+      "Bash(git push:*)",
+      "Bash(git pull:*)",
+      "Bash(cat:*)",
+      "Bash(git rm:*)",
+      "Bash(PYTHONPATH=src python:*)",
+      "Bash(PYTHONPATH=src python3:*)",
+      "Bash(python3:*)",
+      "Bash(source:*)",
+      "Bash(PYTHONPATH=src pytest:*)",
+      "Bash(.venv/bin/pip:*)",
+      "Bash(.venv/bin/python -m pytest tests/test_database.py -v)",
+      "Bash(PYTHONPATH=src .venv/bin/python -m pytest:*)"
+    ]
+  }
+}
