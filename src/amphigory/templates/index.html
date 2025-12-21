@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard - Amphigory{% endblock %}
+
+{% block content %}
+<div class="dashboard">
+    <section class="disc-status card">
+        <h2>Disc Status</h2>
+        <div id="disc-info" hx-get="/api/disc/status" hx-trigger="every 5s" hx-swap="innerHTML">
+            <p class="status-message">{{ disc_status }}</p>
+        </div>
+    </section>
+
+    <section class="current-jobs card">
+        <h2>Active Jobs</h2>
+        <div id="active-jobs" hx-get="/api/jobs/active" hx-trigger="every 2s" hx-swap="innerHTML">
+            <p class="no-jobs">No active jobs</p>
+        </div>
+    </section>
+
+    <section class="quick-actions card">
+        <h2>Quick Actions</h2>
+        <button hx-post="/api/disc/scan" hx-swap="none" class="btn btn-primary">
+            Scan Disc
+        </button>
+    </section>
+</div>
+{% endblock %}
