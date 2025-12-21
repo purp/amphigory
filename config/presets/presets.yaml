@@ -1,0 +1,6 @@
+# Maps disc types to active preset names
+
+active:
+  dvd: "DVD - H.265 720p:5.1 FRSAS All Tracks"
+  bluray: "Blu Ray - H.265 Apple VTB 1080p FR SAS All Tracks"
+  uhd4k: "UHD 4K - H.265 Apple VTB 2160p FR SAS All Tracks"
