@@ -428,7 +428,9 @@ For Docker passthrough, we'll need to map this device into the container. The di
 
 1. **Preset export:** Need to export current Handbrake presets from GUI before implementation.
 
-2. **MakeMKV license:** Currently in eval mode. May need license for container deployment.
+## Resolved
+
+- **MakeMKV license:** ✅ Registered. License key will need to be provided to container via environment variable or config file.
 
 ## Implementation Plan
 
