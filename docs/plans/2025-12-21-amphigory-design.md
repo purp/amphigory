@@ -65,9 +65,11 @@ Amphigory runs as a single Docker container added to the existing `/opt/beehive-
 CREATE TABLE discs (
     id INTEGER PRIMARY KEY,
     title TEXT NOT NULL,
-    year INTEGER,
+    year INTEGER,              -- Film release year
     imdb_id TEXT,
-    disc_type TEXT, -- 'dvd', 'bluray', 'uhd4k'
+    disc_type TEXT,            -- 'dvd', 'bluray', 'uhd4k'
+    disc_release_year INTEGER, -- Year this disc edition was released
+    edition_notes TEXT,        -- e.g., "20th Anniversary Edition", "Director's Cut"
     processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     notes TEXT
 );
@@ -318,6 +320,11 @@ Database also stores preset JSON for complete reproducibility.
 - 60-second preview generation per track
 - LLM-powered track identification using Claude API
 - Better duplicate detection
+- **Packaging photo upload:** Snap a photo of the disc case, upload it, and Claude extracts:
+  - Film title and year
+  - Edition name and disc release year
+  - Listed special features (helps identify/name tracks)
+  - Runtime, rating, studio info
 
 ### Iteration 3: TV Shows
 - Season/episode detection
@@ -340,13 +347,88 @@ Database also stores preset JSON for complete reproducibility.
 - Push notifications on completion
 - Menu bar status
 
-## Open Questions
+## Technical Appendix
 
-1. **Optical drive device path on macOS:** Need to determine exact device path to pass through to container. May need experimentation.
+### MakeMKV CLI Output Format
 
-2. **OMDb API key:** Do we need one, or should we scrape IMDB directly?
+The `makemkvcon -r info disc:0` command outputs structured data in CSV-like format:
 
-3. **Preset export:** Need to export current Handbrake presets from GUI before implementation.
+**Line Types:**
+- `MSG:` — Log messages (info, warnings, errors)
+- `DRV:` — Drive info (index, flags, disc count, name, label, device path)
+- `CINFO:` — Disc-level metadata (type, volume name)
+- `TINFO:` — Title/track metadata (duration, size, filename)
+- `SINFO:` — Stream info within a title (video, audio, subtitle tracks)
+- `TCOUNT:` — Total number of titles
+
+**Key TINFO fields:**
+| Field ID | Meaning | Example |
+|----------|---------|---------|
+| 8 | Chapter count | "24" |
+| 9 | Duration | "1:39:56" |
+| 10 | Size (human) | "10.6 GB" |
+| 11 | Size (bytes) | "11397666816" |
+| 16 | Source filename | "00000.mpls" |
+| 27 | Suggested output | "title_t00.mkv" |
+
+**Key SINFO fields:**
+| Field ID | Meaning | Example |
+|----------|---------|---------|
+| 1 | Stream type | 6201=Video, 6202=Audio, 6203=Subtitles |
+| 3 | Language code | "eng", "fra", "spa" |
+| 4 | Language name | "English", "French" |
+| 14 | Audio channels | "6" (5.1), "2" (stereo) |
+| 19 | Resolution | "1920x1080", "720x480" |
+
+**Example: Detecting disc type from video stream:**
+- `1920x1080` → Blu-ray
+- `3840x2160` → UHD 4K
+- `720x480` or `720x576` → DVD (or SD bonus content on Blu-ray)
+
+### Disc Edition Tracking
+
+When processing a disc, capture edition information from packaging:
+
+**Film year vs Disc year:**
+- Film year: Original theatrical release (e.g., 2004 for The Polar Express)
+- Disc year: This physical release's copyright (e.g., 2021 for a remastered Blu-ray)
+
+**What to look for on packaging:**
+- Copyright year (usually on back, near studio logos)
+- Edition name ("20th Anniversary", "Director's Cut", "Ultimate Edition")
+- Special features listed (helps identify tracks)
+- Disc count (some editions span multiple discs)
+- Resolution/format badges (4K Ultra HD, Blu-ray, DVD)
+
+**Example database entry:**
+```
+title: "The Polar Express"
+year: 2004
+disc_release_year: 2021
+disc_type: "bluray"
+edition_notes: "Standard Blu-ray release"
+imdb_id: "tt0338348"
+```
+
+### Device Path (macOS)
+
+On macOS, the optical drive appears as `/dev/rdisk#` (raw device). Testing confirmed:
+- Drive: `BD-RE HL-DT-ST BD-RE BU40N`
+- Device path: `/dev/rdisk4`
+
+For Docker passthrough, we'll need to map this device into the container. The disk number may vary; the polling service should detect the correct device dynamically via `makemkvcon -r info disc:9999`.
+
+## Resolved Questions
+
+1. **Optical drive device path:** Confirmed as `/dev/rdisk4` on this system. MakeMKV's `disc:9999` scan finds all available drives dynamically.
+
+2. **IMDB lookup:** Web search works well for title lookup. Example: searching "The Polar Express 2004 IMDB" returns `tt0338348` as first result. Will implement as web search with fallback to manual entry.
+
+## Remaining Questions
+
+1. **Preset export:** Need to export current Handbrake presets from GUI before implementation.
+
+2. **MakeMKV license:** Currently in eval mode. May need license for container deployment.
 
 ## Implementation Plan
 

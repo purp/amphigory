@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Skill(superpowers:brainstorm)",
+      "Bash(git -C /Users/purp/work/amphigory log --oneline -10)",
+      "WebFetch(domain:gollum)",
+      "WebFetch(domain:gollum.meyer.home)",
+      "Bash(curl:*)",
+      "Bash(diskutil list:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)",
+      "Bash(HandBrakeCLI:*)",
+      "Bash(makemkvcon:*)",
+      "WebSearch"
+    ]
+  }
+}
