@@ -1,0 +1,74 @@
+# docker-compose.amphigory.yaml
+# Docker Compose configuration for Amphigory
+#
+# To integrate with existing beehive-docker setup:
+# Option 1: Copy service definition to /opt/beehive-docker/docker-compose.yaml
+# Option 2: Run standalone: docker-compose -f docker-compose.amphigory.yaml up -d
+
+version: '3.8'
+
+services:
+  amphigory:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: amphigory
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      # Timezone
+      - TZ=America/Los_Angeles
+
+      # Application paths
+      - AMPHIGORY_DATA=/data
+      - AMPHIGORY_CONFIG=/config
+      - AMPHIGORY_RIPPED_DIR=/media/ripped
+      - AMPHIGORY_INBOX_DIR=/media/plex/inbox
+      - AMPHIGORY_PLEX_DIR=/media/plex/data
+      - AMPHIGORY_WIKI_DIR=/wiki
+
+      # MakeMKV license key (required for Blu-ray support after trial period)
+      # Set this in a .env file or pass via command line
+      - MAKEMKV_KEY=${MAKEMKV_KEY:-}
+
+    volumes:
+      # Application data and configuration
+      - /opt/beehive-docker/amphigory/data:/data
+      - /opt/beehive-docker/amphigory/config:/config
+
+      # Media directories
+      - /Volumes/Media Drive 1/Ripped:/media/ripped
+      - /Volumes/Media Drive 1/plex-media-server/inbox:/media/plex/inbox
+      - /Volumes/Media Drive 1/plex-media-server/data:/media/plex/data
+
+      # Wiki integration for Gollum
+      - /opt/beehive-docker/gollum/wiki-data:/wiki
+
+    devices:
+      # Optical drive passthrough
+      # Update this device path based on your system
+      # Use 'diskutil list' on macOS to find the correct device
+      - /dev/rdisk4:/dev/cdrom
+
+    # Privileged mode may be needed for optical drive access
+    # This gives the container full access to the host's devices
+    privileged: true
+
+    # Optional: limit resources
+    # deploy:
+    #   resources:
+    #     limits:
+    #       cpus: '4'
+    #       memory: 8G
+    #     reservations:
+    #       cpus: '2'
+    #       memory: 4G
+
+    # Health check
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
