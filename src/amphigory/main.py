@@ -10,6 +10,7 @@ from fastapi.responses import HTMLResponse
 
 from amphigory.database import Database
 from amphigory.config import get_config
+from amphigory.api import disc_router
 
 # Paths
 BASE_DIR = Path(__file__).parent
@@ -44,6 +45,9 @@ app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
 # Templates
 templates = Jinja2Templates(directory=TEMPLATES_DIR)
+
+# Include API routers
+app.include_router(disc_router)
 
 
 @app.get("/", response_class=HTMLResponse)

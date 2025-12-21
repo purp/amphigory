@@ -6,7 +6,7 @@
 <div class="dashboard">
     <section class="disc-status card">
         <h2>Disc Status</h2>
-        <div id="disc-info" hx-get="/api/disc/status" hx-trigger="every 5s" hx-swap="innerHTML">
+        <div id="disc-info" hx-get="/api/disc/status-html" hx-trigger="every 5s" hx-swap="innerHTML">
             <p class="status-message">{{ disc_status }}</p>
         </div>
     </section>
