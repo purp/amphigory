@@ -3,14 +3,15 @@
 from pathlib import Path
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse
 
 from amphigory.database import Database
 from amphigory.config import get_config
-from amphigory.api import disc_router
+from amphigory.api import disc_router, jobs_router
+from amphigory.websocket import manager
 
 # Paths
 BASE_DIR = Path(__file__).parent
@@ -48,6 +49,7 @@ templates = Jinja2Templates(directory=TEMPLATES_DIR)
 
 # Include API routers
 app.include_router(disc_router)
+app.include_router(jobs_router)
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -67,3 +69,16 @@ async def index(request: Request):
 async def health_check():
     """Health check endpoint."""
     return {"status": "healthy", "version": "0.1.0"}
+
+
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    """WebSocket endpoint for real-time updates."""
+    await manager.connect(websocket)
+    try:
+        while True:
+            # Keep connection alive, handle incoming messages
+            data = await websocket.receive_text()
+            # Could process commands here if needed
+    except WebSocketDisconnect:
+        manager.disconnect(websocket)
