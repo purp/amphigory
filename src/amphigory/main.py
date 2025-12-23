@@ -71,6 +71,24 @@ async def health_check():
     return {"status": "healthy", "version": "0.1.0"}
 
 
+@app.get("/config.json")
+async def get_daemon_config():
+    """Return configuration for the macOS daemon.
+
+    The daemon fetches this on startup to get runtime settings.
+    """
+    import os
+    data_dir = Path(os.environ.get("AMPHIGORY_DATA", "/data"))
+    return {
+        "tasks_directory": str(data_dir / "tasks"),
+        "websocket_port": 8765,
+        "wiki_url": "https://gollum/amphigory",
+        "heartbeat_interval": 30,
+        "log_level": "INFO",
+        "makemkv_path": None,
+    }
+
+
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     """WebSocket endpoint for real-time updates."""

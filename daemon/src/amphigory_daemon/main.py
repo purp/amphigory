@@ -13,6 +13,7 @@ import rumps
 import yaml
 
 from .config import get_config, load_local_config, fetch_webapp_config
+from .dialogs import ConfigDialog
 from .discovery import discover_makemkvcon
 from .disc import DiscDetector
 from .icons import ActivityState, StatusOverlay, get_icon_name
@@ -53,6 +54,7 @@ CACHED_CONFIG_FILE = CONFIG_DIR / "cached_config.json"
 # Default values for auto-configuration
 DEFAULT_WEBAPP_URL = "http://localhost:6199"
 DEFAULT_WEBAPP_BASEDIR = "/opt/amphigory"
+WIKI_DOC_ROOT_URL = "https://gollum/amphigory"
 
 
 class PauseMode(Enum):
@@ -109,6 +111,8 @@ class AmphigoryDaemon(rumps.App):
 
         # Cold-start mode
         self.cold_start_mode = False
+        self.found_url: Optional[str] = None
+        self.found_directory: Optional[str] = None
 
         # Build menu
         self._build_menu()
@@ -287,50 +291,100 @@ class AmphigoryDaemon(rumps.App):
         self.help_item.set_callback(self.open_help)
         self.restart_item.set_callback(self.restart_daemon)
 
+    async def check_default_url(self) -> Optional[str]:
+        """
+        Check if the default webapp URL is reachable.
+
+        Returns:
+            The URL if reachable, None otherwise
+        """
+        try:
+            await fetch_webapp_config(DEFAULT_WEBAPP_URL)
+            logger.info(f"Default webapp URL is reachable: {DEFAULT_WEBAPP_URL}")
+            return DEFAULT_WEBAPP_URL
+        except ConnectionError:
+            logger.info(f"Default webapp URL not reachable: {DEFAULT_WEBAPP_URL}")
+            return None
+
+    def check_default_directory(self) -> Optional[str]:
+        """
+        Check if the default webapp directory exists.
+
+        Returns:
+            The path if it exists, None otherwise
+        """
+        if Path(DEFAULT_WEBAPP_BASEDIR).exists():
+            logger.info(f"Default directory exists: {DEFAULT_WEBAPP_BASEDIR}")
+            return DEFAULT_WEBAPP_BASEDIR
+        logger.info(f"Default directory not found: {DEFAULT_WEBAPP_BASEDIR}")
+        return None
+
     async def try_default_config(self, config_file: Path) -> bool:
         """
         Try to auto-configure using default values.
 
-        Attempts to connect to webapp at DEFAULT_WEBAPP_URL. If successful,
-        writes configuration to config_file.
+        Checks default URL and directory independently, storing any found values.
+        If both are found, writes configuration to config_file.
 
         Args:
             config_file: Path to write daemon.yaml
 
         Returns:
-            True if auto-configuration succeeded
+            True if full auto-configuration succeeded (both URL and directory found)
         """
-        try:
-            # Try to fetch config from default URL
-            await fetch_webapp_config(DEFAULT_WEBAPP_URL)
+        # Check each default independently
+        self.found_url = await self.check_default_url()
+        self.found_directory = self.check_default_directory()
 
-            # If successful, write config file
+        # If both found, save config
+        if self.found_url and self.found_directory:
             config_file.parent.mkdir(parents=True, exist_ok=True)
             with open(config_file, "w") as f:
                 yaml.dump({
-                    "webapp_url": DEFAULT_WEBAPP_URL,
-                    "webapp_basedir": DEFAULT_WEBAPP_BASEDIR,
+                    "webapp_url": self.found_url,
+                    "webapp_basedir": self.found_directory,
                 }, f)
-
-            logger.info(f"Auto-configured with defaults: {DEFAULT_WEBAPP_URL}")
+            logger.info(f"Auto-configured: {self.found_url}, {self.found_directory}")
             return True
 
-        except ConnectionError:
-            logger.info("Auto-configuration failed, webapp not reachable at default URL")
-            return False
+        logger.info(f"Partial auto-config: url={self.found_url}, dir={self.found_directory}")
+        return False
 
     def show_config_dialog(self) -> None:
         """
         Show configuration dialog for cold-start mode.
 
-        Displays a notification about configuration requirements.
+        Displays a dialog with fields for URL and directory.
+        Pre-fills any values found during auto-configuration.
         """
-        rumps.notification(
-            "Amphigory Configuration Required",
-            "Please configure the daemon",
-            f"Create {LOCAL_CONFIG_FILE} with webapp_url and webapp_basedir settings.",
+        dialog = ConfigDialog(
+            initial_url=self.found_url or "",
+            initial_directory=self.found_directory or "",
+            wiki_url=f"{WIKI_DOC_ROOT_URL}/Daemon",
         )
+
+        result = dialog.run()
         logger.info("Configuration dialog shown")
+
+        if not result.cancelled:
+            webapp_url = result.url.strip() if result.url else ""
+            webapp_dir = result.directory.strip() if result.directory else DEFAULT_WEBAPP_BASEDIR
+
+            if webapp_url:
+                # Save configuration
+                LOCAL_CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+                with open(LOCAL_CONFIG_FILE, "w") as f:
+                    yaml.dump({
+                        "webapp_url": webapp_url,
+                        "webapp_basedir": webapp_dir,
+                    }, f)
+                logger.info(f"Configuration saved: {webapp_url}, {webapp_dir}")
+
+                rumps.notification(
+                    "Amphigory",
+                    "Configuration Saved",
+                    "Please restart the daemon to apply changes.",
+                )
 
     def on_disc_insert(self, device: str, volume_name: str) -> None:
         """Handle disc insertion."""

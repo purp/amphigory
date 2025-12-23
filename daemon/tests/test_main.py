@@ -122,6 +122,75 @@ class TestAutoConfiguration:
     """Tests for automatic configuration with default values."""
 
     @pytest.mark.asyncio
+    async def test_check_default_url_returns_url_when_reachable(self):
+        """check_default_url returns URL when webapp is reachable."""
+        from amphigory_daemon.main import AmphigoryDaemon, DEFAULT_WEBAPP_URL
+        from amphigory_daemon.models import WebappConfig
+
+        daemon = AmphigoryDaemon()
+
+        mock_config = WebappConfig(
+            tasks_directory="/tasks",
+            websocket_port=8765,
+            wiki_url="http://localhost:6199/wiki",
+            heartbeat_interval=30,
+            log_level="INFO",
+            makemkv_path=None,
+        )
+
+        with patch("amphigory_daemon.main.fetch_webapp_config", new_callable=AsyncMock) as mock_fetch:
+            mock_fetch.return_value = mock_config
+            result = await daemon.check_default_url()
+
+        assert result == DEFAULT_WEBAPP_URL
+
+    @pytest.mark.asyncio
+    async def test_check_default_url_returns_none_when_unreachable(self):
+        """check_default_url returns None when webapp is not reachable."""
+        from amphigory_daemon.main import AmphigoryDaemon
+
+        daemon = AmphigoryDaemon()
+
+        with patch("amphigory_daemon.main.fetch_webapp_config", new_callable=AsyncMock) as mock_fetch:
+            mock_fetch.side_effect = ConnectionError("Cannot connect")
+            result = await daemon.check_default_url()
+
+        assert result is None
+
+    def test_check_default_directory_returns_path_when_exists(self, tmp_path):
+        """check_default_directory returns path when directory exists."""
+        from amphigory_daemon.main import AmphigoryDaemon
+
+        daemon = AmphigoryDaemon()
+        test_dir = tmp_path / "amphigory"
+        test_dir.mkdir()
+
+        with patch("amphigory_daemon.main.DEFAULT_WEBAPP_BASEDIR", str(test_dir)):
+            result = daemon.check_default_directory()
+
+        assert result == str(test_dir)
+
+    def test_check_default_directory_returns_none_when_missing(self):
+        """check_default_directory returns None when directory doesn't exist."""
+        from amphigory_daemon.main import AmphigoryDaemon
+
+        daemon = AmphigoryDaemon()
+
+        with patch("amphigory_daemon.main.DEFAULT_WEBAPP_BASEDIR", "/nonexistent/path/amphigory"):
+            result = daemon.check_default_directory()
+
+        assert result is None
+
+    def test_found_values_stored_on_daemon(self):
+        """Daemon stores found URL and directory for dialog."""
+        from amphigory_daemon.main import AmphigoryDaemon
+
+        daemon = AmphigoryDaemon()
+
+        assert hasattr(daemon, "found_url")
+        assert hasattr(daemon, "found_directory")
+
+    @pytest.mark.asyncio
     async def test_try_default_config_succeeds_when_webapp_reachable(self, tmp_path):
         """try_default_config saves config when webapp responds at default URL."""
         from amphigory_daemon.main import AmphigoryDaemon
@@ -273,6 +342,81 @@ class TestConfigurationDialog:
 
         assert hasattr(daemon, "show_config_dialog")
         assert callable(daemon.show_config_dialog)
+
+    def test_show_config_dialog_creates_dialog(self):
+        """show_config_dialog creates a ConfigDialog."""
+        from amphigory_daemon.main import AmphigoryDaemon
+        from amphigory_daemon.dialogs import DialogResult
+
+        daemon = AmphigoryDaemon()
+
+        with patch("amphigory_daemon.main.ConfigDialog") as mock_dialog_class:
+            mock_dialog = MagicMock()
+            mock_dialog.run.return_value = DialogResult(cancelled=True)
+            mock_dialog_class.return_value = mock_dialog
+            daemon.show_config_dialog()
+
+            mock_dialog_class.assert_called_once()
+
+    def test_config_dialog_saves_on_ok(self, tmp_path):
+        """Config dialog saves settings when user clicks Save."""
+        from amphigory_daemon.main import AmphigoryDaemon
+        from amphigory_daemon.dialogs import DialogResult
+
+        daemon = AmphigoryDaemon()
+        daemon.enter_cold_start_mode()
+
+        config_file = tmp_path / "daemon.yaml"
+
+        with patch("amphigory_daemon.main.ConfigDialog") as mock_dialog_class:
+            mock_dialog = MagicMock()
+            mock_dialog.run.return_value = DialogResult(
+                cancelled=False,
+                url="http://myserver:6199",
+                directory="/my/path",
+            )
+            mock_dialog_class.return_value = mock_dialog
+            with patch("amphigory_daemon.main.LOCAL_CONFIG_FILE", config_file):
+                daemon.show_config_dialog()
+
+        assert config_file.exists()
+
+    def test_config_dialog_does_not_save_on_cancel(self, tmp_path):
+        """Config dialog doesn't save when user clicks Cancel."""
+        from amphigory_daemon.main import AmphigoryDaemon
+        from amphigory_daemon.dialogs import DialogResult
+
+        daemon = AmphigoryDaemon()
+        daemon.enter_cold_start_mode()
+
+        config_file = tmp_path / "daemon.yaml"
+
+        with patch("amphigory_daemon.main.ConfigDialog") as mock_dialog_class:
+            mock_dialog = MagicMock()
+            mock_dialog.run.return_value = DialogResult(cancelled=True)
+            mock_dialog_class.return_value = mock_dialog
+            with patch("amphigory_daemon.main.LOCAL_CONFIG_FILE", config_file):
+                daemon.show_config_dialog()
+
+        assert not config_file.exists()
+
+    def test_config_dialog_includes_wiki_url(self):
+        """Config dialog is created with wiki URL."""
+        from amphigory_daemon.main import AmphigoryDaemon, WIKI_DOC_ROOT_URL
+        from amphigory_daemon.dialogs import DialogResult
+
+        daemon = AmphigoryDaemon()
+
+        with patch("amphigory_daemon.main.ConfigDialog") as mock_dialog_class:
+            mock_dialog = MagicMock()
+            mock_dialog.run.return_value = DialogResult(cancelled=True)
+            mock_dialog_class.return_value = mock_dialog
+            daemon.show_config_dialog()
+
+            # Check wiki_url was passed
+            call_kwargs = mock_dialog_class.call_args.kwargs
+            assert "wiki_url" in call_kwargs
+            assert WIKI_DOC_ROOT_URL in call_kwargs["wiki_url"]
 
     def test_preferences_in_cold_start_shows_dialog(self):
         """Clicking Preferences in cold-start mode shows config dialog."""

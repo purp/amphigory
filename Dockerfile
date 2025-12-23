@@ -66,6 +66,6 @@ ENV PYTHONPATH=/app/src
 ENV AMPHIGORY_CONFIG=/config
 ENV AMPHIGORY_DATA=/data
 
-EXPOSE 8080
+EXPOSE 6199
 
-CMD ["uvicorn", "amphigory.main:app", "--host", "0.0.0.0", "--port", "8080"]
+CMD ["uvicorn", "amphigory.main:app", "--host", "0.0.0.0", "--port", "6199"]
