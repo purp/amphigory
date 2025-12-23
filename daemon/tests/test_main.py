@@ -1,0 +1,301 @@
+"""Tests for main daemon application - TDD: tests written first."""
+
+import pytest
+from pathlib import Path
+from unittest.mock import MagicMock, patch, AsyncMock
+
+
+# Default values to try on first run
+DEFAULT_WEBAPP_URL = "http://localhost:6199"
+DEFAULT_WEBAPP_BASEDIR = "/opt/amphigory"
+
+
+class TestColdStartMode:
+    """Tests for cold-start mode and auto-configuration."""
+
+    def test_has_default_webapp_url(self):
+        """Module defines a default webapp URL to try."""
+        from amphigory_daemon.main import DEFAULT_WEBAPP_URL
+
+        assert DEFAULT_WEBAPP_URL == "http://localhost:6199"
+
+    def test_has_default_webapp_basedir(self):
+        """Module defines a default webapp basedir to try."""
+        from amphigory_daemon.main import DEFAULT_WEBAPP_BASEDIR
+
+        assert DEFAULT_WEBAPP_BASEDIR == "/opt/amphigory"
+
+    def test_is_configured_returns_false_when_config_missing(self, tmp_path):
+        """is_configured returns False when local config file doesn't exist."""
+        from amphigory_daemon.main import AmphigoryDaemon
+
+        daemon = AmphigoryDaemon()
+        nonexistent = tmp_path / "nonexistent" / "daemon.yaml"
+
+        result = daemon.is_configured(nonexistent)
+
+        assert result is False
+
+    def test_is_configured_returns_true_when_config_exists(self, tmp_path):
+        """is_configured returns True when local config file exists."""
+        from amphigory_daemon.main import AmphigoryDaemon
+
+        config_file = tmp_path / "daemon.yaml"
+        config_file.write_text("webapp_url: http://localhost:3000\nwebapp_basedir: /app")
+
+        daemon = AmphigoryDaemon()
+        result = daemon.is_configured(config_file)
+
+        assert result is True
+
+    def test_cold_start_sets_needs_config_overlay(self):
+        """Daemon in cold-start mode has NEEDS_CONFIG overlay."""
+        from amphigory_daemon.main import AmphigoryDaemon
+        from amphigory_daemon.icons import StatusOverlay
+
+        daemon = AmphigoryDaemon()
+
+        daemon.enter_cold_start_mode()
+
+        assert StatusOverlay.NEEDS_CONFIG in daemon.status_overlays
+
+    def test_cold_start_mode_stored_as_flag(self):
+        """Cold-start mode is tracked via a flag."""
+        from amphigory_daemon.main import AmphigoryDaemon
+
+        daemon = AmphigoryDaemon()
+        assert daemon.cold_start_mode is False
+
+        daemon.enter_cold_start_mode()
+
+        assert daemon.cold_start_mode is True
+
+    def test_cold_start_disables_most_menu_items(self):
+        """Cold-start mode disables all menu items except Preferences, Open Webapp, Quit."""
+        from amphigory_daemon.main import AmphigoryDaemon
+
+        daemon = AmphigoryDaemon()
+
+        daemon.enter_cold_start_mode()
+
+        # These should be enabled (have callbacks)
+        assert daemon.preferences_item.callback is not None
+        assert daemon.open_webapp_item.callback is not None
+        assert daemon.quit_item.callback is not None
+
+        # These should be disabled (no callback)
+        assert daemon.disc_item.callback is None
+        assert daemon.progress_item.callback is None
+        assert daemon.pause_item.callback is None
+        assert daemon.pause_now_item.callback is None
+        assert daemon.help_item.callback is None
+        assert daemon.restart_item.callback is None
+
+    def test_exit_cold_start_removes_needs_config_overlay(self):
+        """Exiting cold-start mode removes NEEDS_CONFIG overlay."""
+        from amphigory_daemon.main import AmphigoryDaemon
+        from amphigory_daemon.icons import StatusOverlay
+
+        daemon = AmphigoryDaemon()
+        daemon.enter_cold_start_mode()
+
+        daemon.exit_cold_start_mode()
+
+        assert StatusOverlay.NEEDS_CONFIG not in daemon.status_overlays
+        assert daemon.cold_start_mode is False
+
+    def test_exit_cold_start_re_enables_menu_items(self):
+        """Exiting cold-start mode re-enables previously disabled menu items."""
+        from amphigory_daemon.main import AmphigoryDaemon
+
+        daemon = AmphigoryDaemon()
+        daemon.enter_cold_start_mode()
+
+        daemon.exit_cold_start_mode()
+
+        # Pause items should be re-enabled
+        assert daemon.pause_item.callback is not None
+        assert daemon.pause_now_item.callback is not None
+
+
+class TestAutoConfiguration:
+    """Tests for automatic configuration with default values."""
+
+    @pytest.mark.asyncio
+    async def test_try_default_config_succeeds_when_webapp_reachable(self, tmp_path):
+        """try_default_config saves config when webapp responds at default URL."""
+        from amphigory_daemon.main import AmphigoryDaemon
+        from amphigory_daemon.models import WebappConfig
+
+        daemon = AmphigoryDaemon()
+        config_file = tmp_path / "daemon.yaml"
+
+        # Mock successful fetch from webapp
+        mock_config = WebappConfig(
+            tasks_directory="/tasks",
+            websocket_port=8765,
+            wiki_url="http://localhost:3000/wiki",
+            heartbeat_interval=30,
+            log_level="INFO",
+            makemkv_path=None,
+        )
+
+        with patch("amphigory_daemon.main.fetch_webapp_config", new_callable=AsyncMock) as mock_fetch:
+            mock_fetch.return_value = mock_config
+
+            result = await daemon.try_default_config(config_file)
+
+        assert result is True
+        assert config_file.exists()
+
+    @pytest.mark.asyncio
+    async def test_try_default_config_fails_when_webapp_unreachable(self, tmp_path):
+        """try_default_config returns False when webapp is not reachable."""
+        from amphigory_daemon.main import AmphigoryDaemon
+
+        daemon = AmphigoryDaemon()
+        config_file = tmp_path / "daemon.yaml"
+
+        with patch("amphigory_daemon.main.fetch_webapp_config", new_callable=AsyncMock) as mock_fetch:
+            mock_fetch.side_effect = ConnectionError("Cannot connect")
+
+            result = await daemon.try_default_config(config_file)
+
+        assert result is False
+        assert not config_file.exists()
+
+    @pytest.mark.asyncio
+    async def test_try_default_config_writes_correct_yaml(self, tmp_path):
+        """try_default_config writes webapp_url and webapp_basedir to yaml."""
+        from amphigory_daemon.main import AmphigoryDaemon, DEFAULT_WEBAPP_URL, DEFAULT_WEBAPP_BASEDIR
+        from amphigory_daemon.models import WebappConfig
+        import yaml
+
+        daemon = AmphigoryDaemon()
+        config_file = tmp_path / "daemon.yaml"
+
+        mock_config = WebappConfig(
+            tasks_directory="/tasks",
+            websocket_port=8765,
+            wiki_url="http://localhost:3000/wiki",
+            heartbeat_interval=30,
+            log_level="INFO",
+            makemkv_path=None,
+        )
+
+        with patch("amphigory_daemon.main.fetch_webapp_config", new_callable=AsyncMock) as mock_fetch:
+            mock_fetch.return_value = mock_config
+
+            await daemon.try_default_config(config_file)
+
+        # Verify the file contents
+        with open(config_file) as f:
+            data = yaml.safe_load(f)
+
+        assert data["webapp_url"] == DEFAULT_WEBAPP_URL
+        assert data["webapp_basedir"] == DEFAULT_WEBAPP_BASEDIR
+
+
+class TestStartupFlow:
+    """Tests for initialization and startup flow."""
+
+    @pytest.mark.asyncio
+    async def test_initialize_tries_defaults_when_no_config(self, tmp_path):
+        """initialize tries auto-config when local config doesn't exist."""
+        from amphigory_daemon.main import AmphigoryDaemon
+        from amphigory_daemon.models import WebappConfig, DaemonConfig
+
+        daemon = AmphigoryDaemon()
+        config_file = tmp_path / "daemon.yaml"
+        cache_file = tmp_path / "cached_config.json"
+
+        mock_webapp_config = WebappConfig(
+            tasks_directory="/tasks",
+            websocket_port=8765,
+            wiki_url="http://localhost:6199/wiki",
+            heartbeat_interval=30,
+            log_level="INFO",
+            makemkv_path=None,
+        )
+        mock_daemon_config = DaemonConfig(
+            webapp_url="http://localhost:6199",
+            webapp_basedir=str(tmp_path / "webapp"),
+        )
+
+        with patch("amphigory_daemon.main.fetch_webapp_config", new_callable=AsyncMock) as mock_fetch:
+            mock_fetch.return_value = mock_webapp_config
+            with patch("amphigory_daemon.main.get_config", new_callable=AsyncMock) as mock_get:
+                mock_get.return_value = (mock_daemon_config, mock_webapp_config)
+                with patch("amphigory_daemon.main.discover_makemkvcon") as mock_discover:
+                    mock_discover.return_value = Path("/usr/local/bin/makemkvcon")
+                    # Also patch WebSocketServer and DiscDetector to avoid real initialization
+                    with patch("amphigory_daemon.main.WebSocketServer") as mock_ws:
+                        mock_ws.return_value.start = AsyncMock()
+                        with patch("amphigory_daemon.main.DiscDetector") as mock_disc:
+                            mock_disc.return_value.start = MagicMock()
+                            mock_disc.return_value.get_current_disc = MagicMock(return_value=None)
+
+                            result = await daemon.initialize(config_file, cache_file)
+
+        # Should have auto-configured
+        assert config_file.exists()
+        assert result is True
+
+    @pytest.mark.asyncio
+    async def test_initialize_enters_cold_start_when_auto_config_fails(self, tmp_path):
+        """initialize enters cold-start mode when auto-config fails."""
+        from amphigory_daemon.main import AmphigoryDaemon
+        from amphigory_daemon.icons import StatusOverlay
+
+        daemon = AmphigoryDaemon()
+        config_file = tmp_path / "daemon.yaml"
+        cache_file = tmp_path / "cached_config.json"
+
+        with patch("amphigory_daemon.main.fetch_webapp_config", new_callable=AsyncMock) as mock_fetch:
+            mock_fetch.side_effect = ConnectionError("Cannot connect")
+
+            result = await daemon.initialize(config_file, cache_file)
+
+        # Should be in cold-start mode
+        assert daemon.cold_start_mode is True
+        assert StatusOverlay.NEEDS_CONFIG in daemon.status_overlays
+        assert result is False
+
+
+class TestConfigurationDialog:
+    """Tests for configuration dialog when cold-start mode is active."""
+
+    def test_show_config_dialog_callable(self):
+        """Daemon has a show_config_dialog method."""
+        from amphigory_daemon.main import AmphigoryDaemon
+
+        daemon = AmphigoryDaemon()
+
+        assert hasattr(daemon, "show_config_dialog")
+        assert callable(daemon.show_config_dialog)
+
+    def test_preferences_in_cold_start_shows_dialog(self):
+        """Clicking Preferences in cold-start mode shows config dialog."""
+        from amphigory_daemon.main import AmphigoryDaemon
+
+        daemon = AmphigoryDaemon()
+        daemon.enter_cold_start_mode()
+
+        with patch.object(daemon, "show_config_dialog") as mock_dialog:
+            # Trigger the preferences callback
+            daemon.open_preferences(None)
+
+            mock_dialog.assert_called_once()
+
+    def test_open_webapp_in_cold_start_shows_dialog(self):
+        """Clicking Open Webapp in cold-start mode shows config dialog."""
+        from amphigory_daemon.main import AmphigoryDaemon
+
+        daemon = AmphigoryDaemon()
+        daemon.enter_cold_start_mode()
+
+        with patch.object(daemon, "show_config_dialog") as mock_dialog:
+            # Trigger the open webapp callback
+            daemon.open_webapp(None)
+
+            mock_dialog.assert_called_once()

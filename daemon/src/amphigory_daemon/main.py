@@ -1,0 +1,707 @@
+"""Main Amphigory daemon application - macOS menu bar app."""
+
+import asyncio
+import logging
+import webbrowser
+from dataclasses import dataclass
+from datetime import datetime
+from enum import Enum, auto
+from pathlib import Path
+from typing import Optional
+
+import rumps
+import yaml
+
+from .config import get_config, load_local_config, fetch_webapp_config
+from .discovery import discover_makemkvcon
+from .disc import DiscDetector
+from .icons import ActivityState, StatusOverlay, get_icon_name
+from .makemkv import (
+    Progress,
+    build_rip_command,
+    build_scan_command,
+    parse_progress_line,
+    parse_scan_output,
+)
+from .models import (
+    DaemonConfig,
+    WebappConfig,
+    ScanTask,
+    RipTask,
+    TaskResponse,
+    TaskStatus,
+    TaskError,
+    ErrorCode,
+    ScanResult,
+    RipResult,
+)
+from .tasks import TaskQueue
+from .websocket import WebSocketServer
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+)
+logger = logging.getLogger(__name__)
+
+# Default paths
+CONFIG_DIR = Path.home() / ".config" / "amphigory"
+LOCAL_CONFIG_FILE = CONFIG_DIR / "daemon.yaml"
+CACHED_CONFIG_FILE = CONFIG_DIR / "cached_config.json"
+
+# Default values for auto-configuration
+DEFAULT_WEBAPP_URL = "http://localhost:6199"
+DEFAULT_WEBAPP_BASEDIR = "/opt/amphigory"
+
+
+class PauseMode(Enum):
+    """Pause mode for the daemon."""
+    NONE = auto()
+    AFTER_TRACK = auto()
+    IMMEDIATE = auto()
+
+
+@dataclass
+class ScanCache:
+    """Cached scan result."""
+    device: str
+    result: ScanResult
+    scanned_at: datetime
+
+
+class AmphigoryDaemon(rumps.App):
+    """
+    Amphigory menu bar daemon application.
+
+    Handles:
+    - Disc detection and proactive scanning
+    - Task queue processing (rip tasks)
+    - WebSocket communication with webapp
+    - Menu bar UI
+    """
+
+    def __init__(self):
+        super().__init__("Amphigory", quit_button=None)
+
+        # Configuration
+        self.daemon_config: Optional[DaemonConfig] = None
+        self.webapp_config: Optional[WebappConfig] = None
+        self.makemkv_path: Optional[Path] = None
+
+        # Components
+        self.task_queue: Optional[TaskQueue] = None
+        self.ws_server: Optional[WebSocketServer] = None
+        self.disc_detector: Optional[DiscDetector] = None
+
+        # State
+        self.current_task: Optional[ScanTask | RipTask] = None
+        self.current_progress: int = 0
+        self.pause_mode = PauseMode.NONE
+        self.scan_cache: Optional[ScanCache] = None
+        self.current_disc: Optional[tuple[str, str]] = None  # (device, volume)
+        self._running = False
+        self._task_loop: Optional[asyncio.Task] = None
+
+        # Activity state
+        self.activity_state = ActivityState.IDLE_EMPTY
+        self.status_overlays: set[StatusOverlay] = set()
+
+        # Cold-start mode
+        self.cold_start_mode = False
+
+        # Build menu
+        self._build_menu()
+
+    def _build_menu(self) -> None:
+        """Build the menu bar dropdown."""
+        self.disc_item = rumps.MenuItem("No disc inserted")
+        self.disc_item.set_callback(None)
+
+        self.progress_item = rumps.MenuItem("")
+        self.progress_item.set_callback(None)
+
+        self.queue_item = rumps.MenuItem("")
+        self.queue_item.set_callback(None)
+
+        self.pause_item = rumps.MenuItem("Pause After Track")
+        self.pause_now_item = rumps.MenuItem("Pause Now")
+
+        # Store all menu items as instance variables for cold-start mode
+        self.open_webapp_item = rumps.MenuItem("Open Webapp...", callback=self.open_webapp)
+        self.help_item = rumps.MenuItem("Help & Documentation...", callback=self.open_help)
+        self.restart_item = rumps.MenuItem("Restart Daemon", callback=self.restart_daemon)
+        self.preferences_item = rumps.MenuItem("Preferences...", callback=self.open_preferences)
+        self.quit_item = rumps.MenuItem("Quit", callback=self.quit_app)
+
+        self.menu = [
+            self.disc_item,
+            None,  # separator
+            self.progress_item,
+            self.queue_item,
+            None,
+            self.open_webapp_item,
+            self.help_item,
+            None,
+            self.pause_item,
+            self.pause_now_item,
+            self.restart_item,
+            self.preferences_item,
+            self.quit_item,
+        ]
+
+    @rumps.clicked("Pause After Track")
+    def toggle_pause(self, sender):
+        """Toggle pause after current track."""
+        if self.pause_mode == PauseMode.AFTER_TRACK:
+            self.pause_mode = PauseMode.NONE
+            sender.title = "Pause After Track"
+        else:
+            self.pause_mode = PauseMode.AFTER_TRACK
+            sender.title = "▶ Resume"
+        self._update_overlays()
+
+    @rumps.clicked("Pause Now")
+    def pause_now(self, sender):
+        """Pause immediately after current operation."""
+        self.pause_mode = PauseMode.IMMEDIATE
+        self._update_overlays()
+
+    def open_webapp(self, _):
+        """Open webapp in browser."""
+        if self.cold_start_mode:
+            self.show_config_dialog()
+        elif self.daemon_config:
+            webbrowser.open(self.daemon_config.webapp_url)
+
+    def open_help(self, _):
+        """Open help documentation."""
+        if self.webapp_config:
+            webbrowser.open(self.webapp_config.wiki_url)
+
+    def open_preferences(self, _):
+        """Open preferences in webapp."""
+        if self.cold_start_mode:
+            self.show_config_dialog()
+        elif self.daemon_config:
+            webbrowser.open(f"{self.daemon_config.webapp_url}/config")
+
+    def restart_daemon(self, _):
+        """Restart the daemon."""
+        logger.info("Restart requested")
+        # In a real implementation, this would restart the process
+        rumps.notification(
+            "Amphigory",
+            "Restart",
+            "Daemon restart requested. Please restart manually.",
+        )
+
+    def quit_app(self, _):
+        """Quit the application."""
+        logger.info("Quit requested")
+        self._running = False
+        if self.ws_server:
+            asyncio.create_task(self.ws_server.stop())
+        if self.disc_detector:
+            self.disc_detector.stop()
+        rumps.quit_application()
+
+    def _update_icon(self) -> None:
+        """Update the menu bar icon based on current state."""
+        icon_name = get_icon_name(self.activity_state, self.status_overlays or None)
+        # In a real implementation, this would set the actual icon
+        # self.icon = get_icon_path(...)
+        logger.debug(f"Icon updated to: {icon_name}")
+
+    def _update_overlays(self) -> None:
+        """Update status overlays based on current state."""
+        self.status_overlays.clear()
+
+        if self.pause_mode != PauseMode.NONE:
+            self.status_overlays.add(StatusOverlay.PAUSED)
+
+        if self.ws_server and not self.ws_server.has_clients():
+            self.status_overlays.add(StatusOverlay.DISCONNECTED)
+
+        self._update_icon()
+
+    def _update_disc_menu(self) -> None:
+        """Update disc item in menu."""
+        if self.current_disc:
+            device, volume = self.current_disc
+            self.disc_item.title = f"Disc: {volume}"
+        else:
+            self.disc_item.title = "No disc inserted"
+
+    def _update_progress_menu(self) -> None:
+        """Update progress items in menu."""
+        if self.current_task:
+            task_type = "Scanning" if isinstance(self.current_task, ScanTask) else "Ripping"
+            self.progress_item.title = f"{task_type}: {self.current_progress}%"
+        else:
+            self.progress_item.title = ""
+
+    def is_configured(self, config_file: Path) -> bool:
+        """
+        Check if the daemon has a configuration file.
+
+        Args:
+            config_file: Path to daemon.yaml
+
+        Returns:
+            True if config file exists
+        """
+        return config_file.exists()
+
+    def enter_cold_start_mode(self) -> None:
+        """
+        Enter cold-start mode when configuration is missing.
+
+        Sets NEEDS_CONFIG overlay and disables most menu items.
+        """
+        self.cold_start_mode = True
+        self.status_overlays.add(StatusOverlay.NEEDS_CONFIG)
+        self._update_icon()
+
+        # Disable menu items except Preferences, Open Webapp, Quit
+        self.disc_item.set_callback(None)
+        self.progress_item.set_callback(None)
+        self.pause_item.set_callback(None)
+        self.pause_now_item.set_callback(None)
+        self.help_item.set_callback(None)
+        self.restart_item.set_callback(None)
+
+    def exit_cold_start_mode(self) -> None:
+        """
+        Exit cold-start mode after configuration is complete.
+
+        Removes NEEDS_CONFIG overlay and re-enables menu items.
+        """
+        self.cold_start_mode = False
+        self.status_overlays.discard(StatusOverlay.NEEDS_CONFIG)
+        self._update_icon()
+
+        # Re-enable menu items
+        self.pause_item.set_callback(self.toggle_pause)
+        self.pause_now_item.set_callback(self.pause_now)
+        self.help_item.set_callback(self.open_help)
+        self.restart_item.set_callback(self.restart_daemon)
+
+    async def try_default_config(self, config_file: Path) -> bool:
+        """
+        Try to auto-configure using default values.
+
+        Attempts to connect to webapp at DEFAULT_WEBAPP_URL. If successful,
+        writes configuration to config_file.
+
+        Args:
+            config_file: Path to write daemon.yaml
+
+        Returns:
+            True if auto-configuration succeeded
+        """
+        try:
+            # Try to fetch config from default URL
+            await fetch_webapp_config(DEFAULT_WEBAPP_URL)
+
+            # If successful, write config file
+            config_file.parent.mkdir(parents=True, exist_ok=True)
+            with open(config_file, "w") as f:
+                yaml.dump({
+                    "webapp_url": DEFAULT_WEBAPP_URL,
+                    "webapp_basedir": DEFAULT_WEBAPP_BASEDIR,
+                }, f)
+
+            logger.info(f"Auto-configured with defaults: {DEFAULT_WEBAPP_URL}")
+            return True
+
+        except ConnectionError:
+            logger.info("Auto-configuration failed, webapp not reachable at default URL")
+            return False
+
+    def show_config_dialog(self) -> None:
+        """
+        Show configuration dialog for cold-start mode.
+
+        Displays a notification about configuration requirements.
+        """
+        rumps.notification(
+            "Amphigory Configuration Required",
+            "Please configure the daemon",
+            f"Create {LOCAL_CONFIG_FILE} with webapp_url and webapp_basedir settings.",
+        )
+        logger.info("Configuration dialog shown")
+
+    def on_disc_insert(self, device: str, volume_name: str) -> None:
+        """Handle disc insertion."""
+        logger.info(f"Disc inserted: {volume_name} at {device}")
+        self.current_disc = (device, volume_name)
+        self.activity_state = ActivityState.IDLE_DISC
+        self._update_disc_menu()
+        self._update_icon()
+
+        # Send WebSocket event
+        if self.ws_server:
+            asyncio.create_task(
+                self.ws_server.send_disc_event("inserted", device, volume_name)
+            )
+
+        # Start proactive scan
+        asyncio.create_task(self._proactive_scan(device))
+
+    def on_disc_eject(self, device: str) -> None:
+        """Handle disc ejection."""
+        logger.info(f"Disc ejected from {device}")
+        self.current_disc = None
+        self.scan_cache = None
+        self.activity_state = ActivityState.IDLE_EMPTY
+        self._update_disc_menu()
+        self._update_icon()
+
+        # Send WebSocket event
+        if self.ws_server:
+            asyncio.create_task(
+                self.ws_server.send_disc_event("ejected", device)
+            )
+
+    async def _proactive_scan(self, device: str) -> None:
+        """Run proactive scan in background."""
+        if not self.makemkv_path:
+            return
+
+        logger.info("Starting proactive scan")
+        cmd = build_scan_command(self.makemkv_path)
+
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+
+            stdout, _ = await proc.communicate()
+            output = stdout.decode("utf-8", errors="replace")
+
+            result = parse_scan_output(output)
+            self.scan_cache = ScanCache(
+                device=device,
+                result=result,
+                scanned_at=datetime.now(),
+            )
+            logger.info(f"Proactive scan complete: {len(result.tracks)} tracks")
+
+        except Exception as e:
+            logger.error(f"Proactive scan failed: {e}")
+
+    async def initialize(
+        self,
+        config_file: Optional[Path] = None,
+        cache_file: Optional[Path] = None,
+    ) -> bool:
+        """
+        Initialize the daemon.
+
+        Args:
+            config_file: Path to daemon.yaml (defaults to LOCAL_CONFIG_FILE)
+            cache_file: Path to cached_config.json (defaults to CACHED_CONFIG_FILE)
+
+        Returns:
+            True if initialization successful
+        """
+        if config_file is None:
+            config_file = LOCAL_CONFIG_FILE
+        if cache_file is None:
+            cache_file = CACHED_CONFIG_FILE
+
+        try:
+            # Check if we have a config file
+            if not self.is_configured(config_file):
+                logger.info("No configuration found, trying auto-configuration...")
+                if not await self.try_default_config(config_file):
+                    logger.info("Auto-configuration failed, entering cold-start mode")
+                    self.enter_cold_start_mode()
+                    return False
+
+            # Load configuration
+            self.daemon_config, self.webapp_config = await get_config(
+                config_file, cache_file
+            )
+            logger.info(f"Configuration loaded from {self.daemon_config.webapp_url}")
+
+            # Discover makemkvcon
+            self.makemkv_path = discover_makemkvcon(
+                self.webapp_config.makemkv_path
+            )
+            if not self.makemkv_path:
+                logger.error("makemkvcon not found")
+                rumps.notification(
+                    "Amphigory",
+                    "Error",
+                    "makemkvcon not found. Please install MakeMKV.",
+                )
+                return False
+            logger.info(f"makemkvcon found at {self.makemkv_path}")
+
+            # Initialize task queue
+            tasks_dir = Path(self.daemon_config.webapp_basedir) / self.webapp_config.tasks_directory.lstrip("/")
+            self.task_queue = TaskQueue(tasks_dir)
+            self.task_queue.ensure_directories()
+            self.task_queue.recover_crashed_tasks()
+            logger.info(f"Task queue initialized at {tasks_dir}")
+
+            # Initialize WebSocket server
+            self.ws_server = WebSocketServer(
+                port=self.webapp_config.websocket_port,
+                heartbeat_interval=self.webapp_config.heartbeat_interval,
+            )
+            await self.ws_server.start()
+            logger.info(f"WebSocket server started on port {self.webapp_config.websocket_port}")
+
+            # Initialize disc detector
+            self.disc_detector = DiscDetector(
+                on_insert=self.on_disc_insert,
+                on_eject=self.on_disc_eject,
+            )
+            self.disc_detector.start()
+
+            # Check for currently inserted disc
+            current = self.disc_detector.get_current_disc()
+            if current:
+                self.on_disc_insert(*current)
+
+            return True
+
+        except Exception as e:
+            logger.error(f"Initialization failed: {e}")
+            return False
+
+    async def run_task_loop(self) -> None:
+        """Main task processing loop."""
+        self._running = True
+
+        while self._running:
+            try:
+                # Check pause mode
+                if self.pause_mode == PauseMode.IMMEDIATE:
+                    await asyncio.sleep(1)
+                    continue
+
+                # Get next task
+                task = self.task_queue.get_next_task()
+                if not task:
+                    await asyncio.sleep(1)
+                    continue
+
+                # Process task
+                self.current_task = task
+                self.current_progress = 0
+                self.activity_state = ActivityState.WORKING
+                self._update_progress_menu()
+                self._update_icon()
+
+                if self.ws_server:
+                    await self.ws_server.send_status(task.id, "started")
+
+                if isinstance(task, ScanTask):
+                    response = await self._handle_scan_task(task)
+                else:
+                    response = await self._handle_rip_task(task)
+
+                # Complete task
+                self.task_queue.complete_task(response)
+
+                if self.ws_server:
+                    await self.ws_server.send_status(task.id, "completed")
+
+                self.current_task = None
+                self.activity_state = (
+                    ActivityState.IDLE_DISC if self.current_disc
+                    else ActivityState.IDLE_EMPTY
+                )
+                self._update_progress_menu()
+                self._update_icon()
+
+                # Check for pause after track
+                if self.pause_mode == PauseMode.AFTER_TRACK:
+                    self.pause_mode = PauseMode.IMMEDIATE
+                    self.pause_item.title = "▶ Resume"
+
+            except Exception as e:
+                logger.error(f"Task loop error: {e}")
+                await asyncio.sleep(1)
+
+    async def _handle_scan_task(self, task: ScanTask) -> TaskResponse:
+        """Handle a scan task."""
+        started_at = datetime.now()
+
+        # Check cache
+        if (
+            self.scan_cache
+            and self.current_disc
+            and self.scan_cache.device == self.current_disc[0]
+        ):
+            logger.info("Using cached scan result")
+            completed_at = datetime.now()
+            return TaskResponse(
+                task_id=task.id,
+                status=TaskStatus.SUCCESS,
+                started_at=started_at,
+                completed_at=completed_at,
+                duration_seconds=int((completed_at - started_at).total_seconds()),
+                result=self.scan_cache.result,
+            )
+
+        # Run fresh scan
+        try:
+            cmd = build_scan_command(self.makemkv_path)
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+
+            stdout, _ = await proc.communicate()
+            output = stdout.decode("utf-8", errors="replace")
+
+            result = parse_scan_output(output)
+            completed_at = datetime.now()
+
+            return TaskResponse(
+                task_id=task.id,
+                status=TaskStatus.SUCCESS,
+                started_at=started_at,
+                completed_at=completed_at,
+                duration_seconds=int((completed_at - started_at).total_seconds()),
+                result=result,
+            )
+
+        except Exception as e:
+            completed_at = datetime.now()
+            return TaskResponse(
+                task_id=task.id,
+                status=TaskStatus.FAILED,
+                started_at=started_at,
+                completed_at=completed_at,
+                duration_seconds=int((completed_at - started_at).total_seconds()),
+                error=TaskError(
+                    code=ErrorCode.MAKEMKV_FAILED,
+                    message="Scan failed",
+                    detail=str(e),
+                ),
+            )
+
+    async def _handle_rip_task(self, task: RipTask) -> TaskResponse:
+        """Handle a rip task."""
+        started_at = datetime.now()
+
+        try:
+            # Create output directory
+            output_dir = Path(task.output.directory)
+            output_dir.mkdir(parents=True, exist_ok=True)
+
+            cmd = build_rip_command(
+                self.makemkv_path,
+                task.track.number,
+                output_dir,
+            )
+
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+
+            # Stream progress
+            while True:
+                line = await proc.stdout.readline()
+                if not line:
+                    break
+
+                line_str = line.decode("utf-8", errors="replace")
+                progress = parse_progress_line(line_str)
+
+                if progress:
+                    self.current_progress = progress.percent
+                    self._update_progress_menu()
+
+                    if self.ws_server:
+                        await self.ws_server.send_progress(
+                            task_id=task.id,
+                            percent=progress.percent,
+                            eta_seconds=progress.eta_seconds,
+                            current_size_bytes=progress.current_size_bytes,
+                            speed=progress.speed,
+                        )
+
+            await proc.wait()
+
+            if proc.returncode != 0:
+                completed_at = datetime.now()
+                return TaskResponse(
+                    task_id=task.id,
+                    status=TaskStatus.FAILED,
+                    started_at=started_at,
+                    completed_at=completed_at,
+                    duration_seconds=int((completed_at - started_at).total_seconds()),
+                    error=TaskError(
+                        code=ErrorCode.MAKEMKV_FAILED,
+                        message="Rip failed",
+                        detail=f"Exit code: {proc.returncode}",
+                    ),
+                )
+
+            output_path = output_dir / task.output.filename
+            completed_at = datetime.now()
+
+            return TaskResponse(
+                task_id=task.id,
+                status=TaskStatus.SUCCESS,
+                started_at=started_at,
+                completed_at=completed_at,
+                duration_seconds=int((completed_at - started_at).total_seconds()),
+                result=RipResult(
+                    output_path=str(output_path),
+                    size_bytes=output_path.stat().st_size if output_path.exists() else 0,
+                ),
+            )
+
+        except Exception as e:
+            completed_at = datetime.now()
+            return TaskResponse(
+                task_id=task.id,
+                status=TaskStatus.FAILED,
+                started_at=started_at,
+                completed_at=completed_at,
+                duration_seconds=int((completed_at - started_at).total_seconds()),
+                error=TaskError(
+                    code=ErrorCode.UNKNOWN,
+                    message="Unexpected error",
+                    detail=str(e),
+                ),
+            )
+
+
+def main():
+    """Main entry point."""
+    app = AmphigoryDaemon()
+
+    # Run initialization and task loop in background
+    async def async_main():
+        if await app.initialize():
+            await app.run_task_loop()
+
+    # Start async loop in background thread
+    import threading
+
+    def run_async():
+        asyncio.run(async_main())
+
+    thread = threading.Thread(target=run_async, daemon=True)
+    thread.start()
+
+    # Run rumps app (blocks)
+    app.run()
+
+
+if __name__ == "__main__":
+    main()

@@ -1,0 +1,159 @@
+"""Tests for MakeMKV execution - TDD: tests written first."""
+
+import pytest
+
+
+class TestParseProgressLine:
+    def test_parses_prgv_percent(self):
+        """Parse PRGV line to extract percentage."""
+        from amphigory_daemon.makemkv import parse_progress_line
+
+        line = "PRGV:123,456,1000"
+        progress = parse_progress_line(line)
+
+        assert progress is not None
+        assert progress.percent == 45  # 456/1000 * 100
+
+    def test_parses_prgt_message(self):
+        """Parse PRGT line to extract task description."""
+        from amphigory_daemon.makemkv import parse_progress_line
+
+        line = 'PRGT:2,0,"Analyzing seamless segments"'
+        progress = parse_progress_line(line)
+
+        # PRGT contains task info but not percentage
+        assert progress is None  # We focus on PRGV for progress
+
+    def test_returns_none_for_non_progress_line(self):
+        """Return None for lines that aren't progress updates."""
+        from amphigory_daemon.makemkv import parse_progress_line
+
+        line = 'MSG:1005,0,1,"Reading Disc"'
+        progress = parse_progress_line(line)
+
+        assert progress is None
+
+    def test_parses_prgc_current_progress(self):
+        """Parse PRGC line for current operation progress."""
+        from amphigory_daemon.makemkv import parse_progress_line
+
+        line = "PRGC:50,100"
+        progress = parse_progress_line(line)
+
+        assert progress is not None
+        assert progress.percent == 50
+
+
+class TestParseScanOutput:
+    def test_parses_disc_info(self):
+        """Parse disc name and type from scan output."""
+        from amphigory_daemon.makemkv import parse_scan_output
+
+        output = '''MSG:1005,0,1,"Reading Disc"
+CINFO:1,6209,"Disc"
+CINFO:2,0,"THE_POLAR_EXPRESS"
+CINFO:28,0,"disc:0"
+CINFO:30,0,"BD-ROM"
+TCOUNT:5
+'''
+        result = parse_scan_output(output)
+
+        assert result.disc_name == "THE_POLAR_EXPRESS"
+        assert result.disc_type == "bluray"
+
+    def test_parses_tracks(self):
+        """Parse track information from scan output."""
+        from amphigory_daemon.makemkv import parse_scan_output
+
+        output = '''CINFO:2,0,"THE_POLAR_EXPRESS"
+CINFO:30,0,"BD-ROM"
+TCOUNT:2
+TINFO:0,9,0,"1:39:56"
+TINFO:0,10,0,"10.6 GB"
+TINFO:0,11,0,"11397666816"
+TINFO:0,8,0,"24"
+SINFO:0,0,1,6201,"Video"
+SINFO:0,0,19,0,"1920x1080"
+SINFO:0,1,1,6202,"Audio"
+SINFO:0,1,3,0,"eng"
+SINFO:0,1,4,0,"English"
+SINFO:0,1,13,0,"DTS-HD Master Audio"
+SINFO:0,1,14,0,"6"
+SINFO:0,2,1,6203,"Subtitles"
+SINFO:0,2,3,0,"eng"
+SINFO:0,2,5,0,"PGS"
+TINFO:1,9,0,"0:05:23"
+TINFO:1,10,0,"500 MB"
+TINFO:1,11,0,"524288000"
+'''
+        result = parse_scan_output(output)
+
+        assert len(result.tracks) == 2
+        assert result.tracks[0].duration == "1:39:56"
+        assert result.tracks[0].size_bytes == 11397666816
+        assert result.tracks[0].chapters == 24
+        assert result.tracks[0].resolution == "1920x1080"
+        assert len(result.tracks[0].audio_streams) == 1
+        assert result.tracks[0].audio_streams[0].language == "eng"
+        assert result.tracks[0].audio_streams[0].channels == 6
+
+    def test_detects_dvd_disc_type(self):
+        """Detect DVD from disc info."""
+        from amphigory_daemon.makemkv import parse_scan_output
+
+        output = '''CINFO:2,0,"SOME_DVD"
+CINFO:30,0,"DVD"
+TCOUNT:1
+'''
+        result = parse_scan_output(output)
+
+        assert result.disc_type == "dvd"
+
+    def test_detects_uhd_from_resolution(self):
+        """Detect UHD 4K from video resolution."""
+        from amphigory_daemon.makemkv import parse_scan_output
+
+        output = '''CINFO:2,0,"UHD_MOVIE"
+CINFO:30,0,"BD-ROM"
+TCOUNT:1
+TINFO:0,9,0,"2:00:00"
+TINFO:0,11,0,"50000000000"
+SINFO:0,0,1,6201,"Video"
+SINFO:0,0,19,0,"3840x2160"
+'''
+        result = parse_scan_output(output)
+
+        assert result.disc_type == "uhd4k"
+
+
+class TestBuildScanCommand:
+    def test_builds_info_command(self):
+        """Build makemkvcon info command."""
+        from amphigory_daemon.makemkv import build_scan_command
+        from pathlib import Path
+
+        cmd = build_scan_command(Path("/usr/local/bin/makemkvcon"))
+
+        assert cmd == ["/usr/local/bin/makemkvcon", "-r", "info", "disc:0"]
+
+
+class TestBuildRipCommand:
+    def test_builds_mkv_command(self):
+        """Build makemkvcon mkv command for ripping."""
+        from amphigory_daemon.makemkv import build_rip_command
+        from pathlib import Path
+
+        cmd = build_rip_command(
+            makemkv_path=Path("/usr/local/bin/makemkvcon"),
+            track_number=0,
+            output_dir=Path("/media/ripped/Movie"),
+        )
+
+        assert cmd == [
+            "/usr/local/bin/makemkvcon",
+            "-r",
+            "mkv",
+            "disc:0",
+            "0",
+            "/media/ripped/Movie",
+        ]
