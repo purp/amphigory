@@ -761,3 +761,155 @@ class TestStartupValidation:
 
                             # Verify heartbeat loop was started as a task
                             assert daemon._heartbeat_task is not None
+
+
+class TestConfigChangeHandling:
+    """Tests for handling webapp config changes."""
+
+    @pytest.mark.asyncio
+    async def test_initialize_sets_on_config_change_callback(self, tmp_path):
+        """initialize() sets up the config change callback on WebSocket server."""
+        from amphigory_daemon.main import AmphigoryDaemon
+        from amphigory_daemon.models import DaemonConfig, WebappConfig
+        from amphigory_daemon.config import ConfigValidationResult
+        import yaml
+
+        config_file = tmp_path / "daemon.yaml"
+        config_file.write_text(yaml.dump({
+            "webapp_url": "http://localhost:6199",
+            "webapp_basedir": str(tmp_path),
+        }))
+        cache_file = tmp_path / "cached_config.json"
+
+        daemon = AmphigoryDaemon()
+
+        with patch("amphigory_daemon.main.get_config", new_callable=AsyncMock) as mock_get_config:
+            mock_get_config.return_value = (
+                DaemonConfig(
+                    webapp_url="http://localhost:6199",
+                    webapp_basedir=str(tmp_path),
+                ),
+                WebappConfig(
+                    tasks_directory="/tasks",
+                    websocket_port=8765,
+                    wiki_url="http://localhost/wiki",
+                    heartbeat_interval=30,
+                    log_level="INFO",
+                    makemkv_path=None,
+                ),
+            )
+            with patch("amphigory_daemon.main.validate_config") as mock_validate:
+                mock_validate.return_value = ConfigValidationResult(
+                    makemkvcon_valid=True,
+                    makemkvcon_error=None,
+                    basedir_valid=True,
+                    basedir_error=None,
+                )
+                with patch("amphigory_daemon.main.discover_makemkvcon") as mock_discover:
+                    mock_discover.return_value = Path("/usr/bin/makemkvcon")
+                    with patch("amphigory_daemon.main.WebSocketServer") as mock_ws:
+                        mock_ws_instance = MagicMock()
+                        mock_ws_instance.start = AsyncMock()
+                        mock_ws_instance.on_config_change = None  # Start with None
+                        mock_ws.return_value = mock_ws_instance
+                        with patch("amphigory_daemon.main.WebAppClient") as mock_client:
+                            mock_client_instance = MagicMock()
+                            mock_client_instance.connect = AsyncMock()
+                            mock_client_instance.send_daemon_config = AsyncMock()
+                            mock_client_instance.start_heartbeat_loop = AsyncMock()
+                            mock_client.return_value = mock_client_instance
+                            with patch("amphigory_daemon.main.DiscDetector") as mock_disc:
+                                mock_disc_instance = MagicMock()
+                                mock_disc_instance.get_current_disc.return_value = None
+                                mock_disc.return_value = mock_disc_instance
+                                with patch("amphigory_daemon.main.TaskQueue"):
+                                    await daemon.initialize(config_file, cache_file)
+
+                        # Verify on_config_change callback was set to a callable
+                        assert mock_ws_instance.on_config_change is not None
+                        assert callable(mock_ws_instance.on_config_change)
+
+    @pytest.mark.asyncio
+    async def test_on_config_change_refetches_config(self, tmp_path):
+        """Config change callback refetches config from webapp."""
+        from amphigory_daemon.main import AmphigoryDaemon
+        from amphigory_daemon.models import DaemonConfig, WebappConfig
+        from amphigory_daemon.config import ConfigValidationResult
+        import yaml
+
+        config_file = tmp_path / "daemon.yaml"
+        config_file.write_text(yaml.dump({
+            "webapp_url": "http://localhost:6199",
+            "webapp_basedir": str(tmp_path),
+        }))
+        cache_file = tmp_path / "cached_config.json"
+
+        daemon = AmphigoryDaemon()
+        original_config = WebappConfig(
+            tasks_directory="/tasks",
+            websocket_port=8765,
+            wiki_url="http://localhost/wiki",
+            heartbeat_interval=30,
+            log_level="INFO",
+            makemkv_path=None,
+        )
+
+        with patch("amphigory_daemon.main.get_config", new_callable=AsyncMock) as mock_get_config:
+            mock_get_config.return_value = (
+                DaemonConfig(
+                    webapp_url="http://localhost:6199",
+                    webapp_basedir=str(tmp_path),
+                ),
+                original_config,
+            )
+            with patch("amphigory_daemon.main.validate_config") as mock_validate:
+                mock_validate.return_value = ConfigValidationResult(
+                    makemkvcon_valid=True,
+                    makemkvcon_error=None,
+                    basedir_valid=True,
+                    basedir_error=None,
+                )
+                with patch("amphigory_daemon.main.discover_makemkvcon") as mock_discover:
+                    mock_discover.return_value = Path("/usr/bin/makemkvcon")
+                    with patch("amphigory_daemon.main.WebSocketServer") as mock_ws:
+                        mock_ws_instance = MagicMock()
+                        mock_ws_instance.start = AsyncMock()
+                        mock_ws_instance.on_config_change = None
+                        mock_ws.return_value = mock_ws_instance
+                        with patch("amphigory_daemon.main.WebAppClient") as mock_client:
+                            mock_client_instance = MagicMock()
+                            mock_client_instance.connect = AsyncMock()
+                            mock_client_instance.send_daemon_config = AsyncMock()
+                            mock_client_instance.start_heartbeat_loop = AsyncMock()
+                            mock_client.return_value = mock_client_instance
+                            with patch("amphigory_daemon.main.DiscDetector") as mock_disc:
+                                mock_disc_instance = MagicMock()
+                                mock_disc_instance.get_current_disc.return_value = None
+                                mock_disc.return_value = mock_disc_instance
+                                with patch("amphigory_daemon.main.TaskQueue"):
+                                    await daemon.initialize(config_file, cache_file)
+
+                        # Get the callback that was set
+                        callback = mock_ws_instance.on_config_change
+
+        # Set up mock for fetch_webapp_config and call the callback
+        with patch("amphigory_daemon.main.fetch_webapp_config", new_callable=AsyncMock) as mock_fetch:
+            updated_config = WebappConfig(
+                tasks_directory="/tasks",
+                websocket_port=8765,
+                wiki_url="http://localhost/wiki",
+                heartbeat_interval=60,  # Changed!
+                log_level="DEBUG",  # Changed!
+                makemkv_path=None,
+            )
+            mock_fetch.return_value = updated_config
+
+            # Call the callback (it's async)
+            await callback()
+
+            # Verify fetch was called with the webapp URL
+            mock_fetch.assert_called_once_with("http://localhost:6199")
+
+            # Verify config was updated
+            assert daemon.webapp_config.heartbeat_interval == 60
+            assert daemon.webapp_config.log_level == "DEBUG"

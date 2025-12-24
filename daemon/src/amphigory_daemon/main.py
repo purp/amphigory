@@ -240,6 +240,18 @@ class AmphigoryDaemon(rumps.App):
             self.disc_detector.stop()
         rumps.quit_application()
 
+    async def _handle_config_change(self) -> None:
+        """Handle webapp config change notification."""
+        if not self.daemon_config:
+            return
+
+        try:
+            new_config = await fetch_webapp_config(self.daemon_config.webapp_url)
+            self.webapp_config = new_config
+            logger.info("Webapp config refreshed")
+        except ConnectionError as e:
+            logger.warning(f"Failed to refresh webapp config: {e}")
+
     def _update_icon(self) -> None:
         """Update the menu bar icon based on current state."""
         icon_name = get_icon_name(self.activity_state, self.status_overlays or None)
@@ -560,6 +572,7 @@ class AmphigoryDaemon(rumps.App):
                 port=self.webapp_config.websocket_port,
                 heartbeat_interval=self.webapp_config.heartbeat_interval,
             )
+            self.ws_server.on_config_change = self._handle_config_change
             await self.ws_server.start()
             logger.info(f"WebSocket server started on port {self.webapp_config.websocket_port}")
 
