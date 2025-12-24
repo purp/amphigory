@@ -47,12 +47,13 @@ class AmphigoryWebSocket {
      */
     async fetchDaemonStatus() {
         try {
-            const response = await fetch('/api/settings/daemons');
+            const response = await fetch('/api/settings/daemons/json');
             const data = await response.json();
             const daemonCount = data.daemons ? data.daemons.length : 0;
             this.updateDaemonStatus(daemonCount > 0, daemonCount);
         } catch (error) {
             console.error('Failed to fetch daemon status:', error);
+            this.updateDaemonStatus(false, 0);
         }
     }
 

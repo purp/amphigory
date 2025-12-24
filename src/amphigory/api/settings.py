@@ -69,6 +69,21 @@ def _format_relative_time(dt: datetime) -> str:
     return f"{hours}h ago"
 
 
+@router.get("/daemons/json")
+async def list_daemons_json():
+    """Return JSON list of connected daemons for JavaScript."""
+    return {
+        "daemons": [
+            {
+                "daemon_id": d.daemon_id,
+                "disc_inserted": d.disc_inserted,
+                "disc_volume": d.disc_volume,
+            }
+            for d in _daemons.values()
+        ]
+    }
+
+
 @router.get("/daemons", response_class=HTMLResponse)
 async def list_daemons_html():
     """Return HTML fragment of connected daemons for HTMX."""
