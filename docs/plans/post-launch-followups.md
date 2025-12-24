@@ -22,4 +22,4 @@ Items deferred to focus on getting to a fully functional system first.
 
 ## Future Enhancements
 
-(Add items here as they come up)
+- [ ] Show HandBrake preset for each track on Disc Review page, with dropdown to select different preset

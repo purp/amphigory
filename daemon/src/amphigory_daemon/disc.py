@@ -10,15 +10,18 @@ try:
         NSWorkspaceDidMountNotification,
         NSWorkspaceDidUnmountNotification,
     )
-    from Foundation import NSNotificationCenter
+    from Foundation import NSObject
+    import objc
     HAS_PYOBJC = True
 except ImportError:
     HAS_PYOBJC = False
+    NSObject = object  # Fallback for non-macOS
+    objc = None
 
 logger = logging.getLogger(__name__)
 
 
-class DiscDetector:
+class DiscDetector(NSObject):
     """
     Detects optical disc insertion and ejection using macOS notifications.
 
@@ -26,30 +29,47 @@ class DiscDetector:
     then filters for optical discs (BD, DVD, CD).
     """
 
-    def __init__(
-        self,
+    def init(self):
+        """Initialize NSObject. Required for PyObjC subclasses."""
+        self = objc.super(DiscDetector, self).init()
+        if self is None:
+            return None
+        self._on_insert = None
+        self._on_eject = None
+        self._running = False
+        return self
+
+    @classmethod
+    def alloc_with_callbacks(
+        cls,
         on_insert: Callable[[str, str], None],
         on_eject: Callable[[str], None],
-    ):
+    ) -> "DiscDetector":
         """
-        Initialize disc detector.
+        Create a DiscDetector with callbacks.
 
         Args:
             on_insert: Callback when disc inserted (device, volume_name)
             on_eject: Callback when disc ejected (device)
+
+        Returns:
+            Initialized DiscDetector instance
         """
-        self.on_insert = on_insert
-        self.on_eject = on_eject
-        self._running = False
+        instance = cls.alloc().init()
+        instance._on_insert = on_insert
+        instance._on_eject = on_eject
+        return instance
 
     def start(self) -> None:
         """Register for mount/unmount notifications."""
+        logger.info(f"DiscDetector.start() called, HAS_PYOBJC={HAS_PYOBJC}")
         if not HAS_PYOBJC:
             logger.warning("PyObjC not available - disc detection disabled")
             return
 
         workspace = NSWorkspace.sharedWorkspace()
         notification_center = workspace.notificationCenter()
+        logger.info(f"Got workspace and notification center: {notification_center}")
 
         # Register for mount notifications
         notification_center.addObserver_selector_name_object_(
@@ -58,6 +78,7 @@ class DiscDetector:
             NSWorkspaceDidMountNotification,
             None,
         )
+        logger.info("Registered for mount notifications")
 
         # Register for unmount notifications
         notification_center.addObserver_selector_name_object_(
@@ -66,9 +87,10 @@ class DiscDetector:
             NSWorkspaceDidUnmountNotification,
             None,
         )
+        logger.info("Registered for unmount notifications")
 
         self._running = True
-        logger.info("Disc detection started")
+        logger.info("Disc detection started successfully")
 
     def stop(self) -> None:
         """Unregister notifications."""
@@ -84,8 +106,10 @@ class DiscDetector:
 
     def handleMount_(self, notification) -> None:
         """Handle mount notification from macOS."""
+        logger.info(f"handleMount_ called with notification: {notification}")
         try:
             user_info = notification.userInfo()
+            logger.info(f"Mount notification userInfo: {user_info}")
             if not user_info:
                 return
 
@@ -112,7 +136,8 @@ class DiscDetector:
             # Check if device is optical (rdisk with specific characteristics)
             if self._is_optical_device(device):
                 logger.info(f"Optical disc inserted: {volume_name} at {device}")
-                self.on_insert(device, volume_name)
+                if self._on_insert:
+                    self._on_insert(device, volume_name)
 
         except Exception as e:
             logger.error(f"Error handling mount notification: {e}")
@@ -136,7 +161,8 @@ class DiscDetector:
             device = self._get_device_for_volume(path)
             if device and self._is_optical_device(device):
                 logger.info(f"Optical disc ejected from {device}")
-                self.on_eject(device)
+                if self._on_eject:
+                    self._on_eject(device)
 
         except Exception as e:
             logger.error(f"Error handling unmount notification: {e}")
@@ -229,9 +255,10 @@ class DiscDetector:
             Tuple of (device, volume_name) if disc present, None otherwise
         """
         import subprocess
+        import re
 
         try:
-            # List all mounted volumes
+            # List all disks
             result = subprocess.run(
                 ["diskutil", "list"],
                 capture_output=True,
@@ -241,20 +268,25 @@ class DiscDetector:
             if result.returncode != 0:
                 return None
 
-            # Look for optical media
-            lines = result.stdout.split("\n")
-            for i, line in enumerate(lines):
-                if "BD-ROM" in line or "DVD" in line or "CD-ROM" in line:
-                    # Extract device identifier
-                    parts = line.split()
-                    if parts:
-                        disk_id = parts[-1]
-                        if disk_id.startswith("disk"):
-                            device = f"/dev/r{disk_id}"
-                            # Get volume name
-                            volume = self._get_volume_for_device(device)
-                            if volume:
-                                return (device, volume)
+            # Find all disk identifiers (lines starting with /dev/disk)
+            disk_pattern = re.compile(r"^/dev/(disk\d+)")
+            disk_ids = []
+            for line in result.stdout.split("\n"):
+                match = disk_pattern.match(line)
+                if match:
+                    disk_ids.append(match.group(1))
+
+            logger.debug(f"Found disks: {disk_ids}")
+
+            # Check each disk to see if it's an optical drive
+            for disk_id in disk_ids:
+                device = f"/dev/r{disk_id}"
+                if self._is_optical_device(device):
+                    volume = self._get_volume_for_device(device)
+                    if volume:
+                        logger.info(f"Found optical disc: {volume} at {device}")
+                        return (device, volume)
+
         except Exception as e:
             logger.error(f"Error checking for current disc: {e}")
 

@@ -14,16 +14,18 @@ class TestDiscDetector:
         def on_eject(device):
             pass
 
-        detector = DiscDetector(on_insert=on_insert, on_eject=on_eject)
+        detector = DiscDetector.alloc_with_callbacks(
+            on_insert=on_insert, on_eject=on_eject
+        )
 
-        assert detector.on_insert == on_insert
-        assert detector.on_eject == on_eject
+        assert detector._on_insert == on_insert
+        assert detector._on_eject == on_eject
 
     def test_has_required_methods(self):
         """DiscDetector has required interface methods."""
         from amphigory_daemon.disc import DiscDetector
 
-        detector = DiscDetector(
+        detector = DiscDetector.alloc_with_callbacks(
             on_insert=lambda d, v: None,
             on_eject=lambda d: None,
         )

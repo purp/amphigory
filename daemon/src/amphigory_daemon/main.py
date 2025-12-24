@@ -634,17 +634,8 @@ class AmphigoryDaemon(rumps.App):
             )
             logger.info(f"Started webapp connection loop to {webapp_ws_url}")
 
-            # Initialize disc detector
-            self.disc_detector = DiscDetector(
-                on_insert=self.on_disc_insert,
-                on_eject=self.on_disc_eject,
-            )
-            self.disc_detector.start()
-
-            # Check for currently inserted disc
-            current = self.disc_detector.get_current_disc()
-            if current:
-                self.on_disc_insert(*current)
+            # Note: disc_detector is initialized in main() on the main thread
+            # because NSWorkspace notifications require the NSApplication run loop
 
             return True
 
@@ -862,13 +853,19 @@ def main():
     """Main entry point."""
     app = AmphigoryDaemon()
 
+    # Store the event loop reference for cross-thread scheduling
+    loop = None
+
     # Run initialization and task loop in background
     async def async_main():
+        nonlocal loop
+        loop = asyncio.get_running_loop()
         if await app.initialize():
             await app.run_task_loop()
 
     # Start async loop in background thread
     import threading
+    import time
 
     def run_async():
         asyncio.run(async_main())
@@ -876,8 +873,54 @@ def main():
     thread = threading.Thread(target=run_async, daemon=True)
     thread.start()
 
-    # Run rumps app (blocks)
+    # Wait for the event loop to be ready
+    while loop is None:
+        time.sleep(0.01)
+
+    # Create wrappers that schedule async work on the event loop
+    def on_insert_wrapper(device: str, volume_name: str):
+        loop.call_soon_threadsafe(
+            lambda: asyncio.create_task(
+                _async_on_disc_insert(app, device, volume_name)
+            )
+        )
+
+    def on_eject_wrapper(device: str):
+        loop.call_soon_threadsafe(
+            lambda: asyncio.create_task(
+                _async_on_disc_eject(app, device)
+            )
+        )
+
+    # Create disc detector on main thread (required for NSWorkspace notifications)
+    logger.info("Creating disc detector on main thread...")
+    app.disc_detector = DiscDetector.alloc_with_callbacks(
+        on_insert=on_insert_wrapper,
+        on_eject=on_eject_wrapper,
+    )
+    logger.info(f"Disc detector created: {app.disc_detector}")
+    app.disc_detector.start()
+
+    # Check for currently inserted disc
+    logger.info("Checking for currently inserted disc...")
+    current = app.disc_detector.get_current_disc()
+    logger.info(f"Current disc check result: {current}")
+    if current:
+        on_insert_wrapper(*current)
+
+    # Run rumps app (blocks) - this runs the NSApplication event loop
+    logger.info("Starting rumps app (NSApplication run loop)...")
     app.run()
+
+
+async def _async_on_disc_insert(app: AmphigoryDaemon, device: str, volume_name: str):
+    """Async handler for disc insertion (runs on async thread)."""
+    app.on_disc_insert(device, volume_name)
+
+
+async def _async_on_disc_eject(app: AmphigoryDaemon, device: str):
+    """Async handler for disc ejection (runs on async thread)."""
+    app.on_disc_eject(device)
 
 
 if __name__ == "__main__":
