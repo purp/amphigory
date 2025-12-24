@@ -2,6 +2,7 @@
 
 import asyncio
 import logging
+import subprocess
 import webbrowser
 from dataclasses import dataclass
 from datetime import datetime
@@ -11,6 +12,37 @@ from typing import Optional
 
 import rumps
 import yaml
+
+
+def get_git_sha() -> Optional[str]:
+    """
+    Get the current git commit SHA (short form).
+
+    First checks _version.py (set at build time for packaged apps),
+    then falls back to git for development.
+    """
+    # Try build-time version first (for packaged apps)
+    try:
+        from ._version import GIT_SHA
+        if GIT_SHA:
+            return GIT_SHA
+    except ImportError:
+        pass
+
+    # Fall back to git (for development)
+    try:
+        result = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            cwd=Path(__file__).parent.parent.parent,  # daemon/ directory
+        )
+        if result.returncode == 0:
+            return result.stdout.strip()
+    except Exception:
+        pass
+    return None
 
 from .config import get_config, load_local_config, fetch_webapp_config, validate_config
 from .dialogs import ConfigDialog
@@ -90,21 +122,13 @@ class PauseMode(Enum):
     IMMEDIATE = auto()
 
 
-@dataclass
-class ScanCache:
-    """Cached scan result."""
-    device: str
-    result: ScanResult
-    scanned_at: datetime
-
-
 class AmphigoryDaemon(rumps.App):
     """
     Amphigory menu bar daemon application.
 
     Handles:
-    - Disc detection and proactive scanning
-    - Task queue processing (rip tasks)
+    - Disc detection
+    - Task queue processing (scan/rip tasks)
     - WebSocket communication with webapp
     - Menu bar UI
     """
@@ -127,7 +151,6 @@ class AmphigoryDaemon(rumps.App):
         self.current_task: Optional[ScanTask | RipTask] = None
         self.current_progress: int = 0
         self.pause_mode = PauseMode.NONE
-        self.scan_cache: Optional[ScanCache] = None
         self.current_disc: Optional[tuple[str, str]] = None  # (device, volume)
         self._running = False
         self._task_loop: Optional[asyncio.Task] = None
@@ -463,14 +486,10 @@ class AmphigoryDaemon(rumps.App):
                 self.ws_server.send_disc_event("inserted", device, volume_name)
             )
 
-        # Start proactive scan
-        asyncio.create_task(self._proactive_scan(device))
-
     def on_disc_eject(self, volume_path: str) -> None:
         """Handle disc ejection."""
         logger.info(f"Disc ejected: {volume_path}")
         self.current_disc = None
-        self.scan_cache = None
         self.activity_state = ActivityState.IDLE_EMPTY
         self._update_disc_menu()
         self._update_icon()
@@ -486,35 +505,6 @@ class AmphigoryDaemon(rumps.App):
             asyncio.create_task(
                 self.ws_server.send_disc_event("ejected", volume_path=volume_path)
             )
-
-    async def _proactive_scan(self, device: str) -> None:
-        """Run proactive scan in background."""
-        if not self.makemkv_path:
-            return
-
-        logger.info("Starting proactive scan")
-        cmd = build_scan_command(self.makemkv_path)
-
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-
-            stdout, _ = await proc.communicate()
-            output = stdout.decode("utf-8", errors="replace")
-
-            result = parse_scan_output(output)
-            self.scan_cache = ScanCache(
-                device=device,
-                result=result,
-                scanned_at=datetime.now(),
-            )
-            logger.info(f"Proactive scan complete: {len(result.tracks)} tracks")
-
-        except Exception as e:
-            logger.error(f"Proactive scan failed: {e}")
 
     async def initialize(
         self,
@@ -628,6 +618,7 @@ class AmphigoryDaemon(rumps.App):
                     daemon_id=self.daemon_config.daemon_id,
                     makemkvcon_path=self.daemon_config.makemkvcon_path,
                     webapp_basedir=self.daemon_config.webapp_basedir,
+                    git_sha=get_git_sha(),
                     on_connect=on_webapp_connect,
                     on_disconnect=on_webapp_disconnect,
                 )
@@ -661,6 +652,7 @@ class AmphigoryDaemon(rumps.App):
                     continue
 
                 # Process task
+                logger.info(f"Starting task: {task.id} (type: {task.type})")
                 self.current_task = task
                 self.current_progress = 0
                 self.activity_state = ActivityState.WORKING
@@ -676,6 +668,7 @@ class AmphigoryDaemon(rumps.App):
                     response = await self._handle_rip_task(task)
 
                 # Complete task
+                logger.info(f"Completed task: {task.id} (status: {response.status.value})")
                 self.task_queue.complete_task(response)
 
                 if self.ws_server:
@@ -702,9 +695,6 @@ class AmphigoryDaemon(rumps.App):
         """Handle a scan task."""
         started_at = datetime.now()
 
-        # Always clear cache and run fresh scan
-        self.scan_cache = None
-
         try:
             cmd = build_scan_command(self.makemkv_path)
             proc = await asyncio.create_subprocess_exec(
@@ -718,14 +708,6 @@ class AmphigoryDaemon(rumps.App):
 
             result = parse_scan_output(output)
             completed_at = datetime.now()
-
-            # Update cache with fresh results
-            if self.current_disc:
-                self.scan_cache = ScanCache(
-                    device=self.current_disc[0],
-                    result=result,
-                    scanned_at=completed_at,
-                )
 
             return TaskResponse(
                 task_id=task.id,

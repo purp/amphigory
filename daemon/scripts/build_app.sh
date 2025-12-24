@@ -8,6 +8,16 @@ cd "$(dirname "$0")/.."
 
 echo "Building Amphigory Daemon..."
 
+# Burn in git SHA to _version.py
+GIT_SHA=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+VERSION="0.1.0"
+cat > src/amphigory_daemon/_version.py << EOF
+# Auto-generated at build time. Do not edit manually.
+GIT_SHA = "${GIT_SHA}"
+VERSION = "${VERSION}"
+EOF
+echo "Burned in git SHA: ${GIT_SHA}"
+
 # Temporarily move pyproject.toml to avoid py2app conflicts
 if [ -f pyproject.toml ]; then
     mv pyproject.toml pyproject.toml.bak

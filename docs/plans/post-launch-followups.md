@@ -2,11 +2,19 @@
 
 Items deferred to focus on getting to a fully functional system first.
 
+## Scanning
+- [ ] Disable "Scan Disk" button if the daemon is currently scanning the disc
+- [ ] Provide a way to stop a scan that's currently running
+- [ ] Recognize when a scan has taken too long and stop it
+
 ## Logging
 
 - [ ] Webapp WebSocket logging not showing daemon_id on connect/disconnect (need to verify implementation)
 - [ ] Log logging level on webapp and daemon startup
 - [ ] Log logging level changes when config is updated
+
+## Daemon
+- [ ] Show current scan duration in menu instead of percentage complete
 
 ## Packaging
 
@@ -22,5 +30,7 @@ Items deferred to focus on getting to a fully functional system first.
 
 ## Future Enhancements
 
+- [ ] Proactive scanning: daemon scans disc on insert, caches result for quick display on Disc Review page
 - [ ] Show HandBrake preset for each track on Disc Review page, with dropdown to select different preset
 - [ ] Track previews: grab 60 seconds of a track for quick preview transcoding
+- [ ] Reinstate the app-level "Daemon Connected" badge in the webapp and use broadcast to keep all browser clients up-to-date

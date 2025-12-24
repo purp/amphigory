@@ -26,6 +26,7 @@ class RegisteredDaemon(BaseModel):
     daemon_id: str
     makemkvcon_path: Optional[str] = None
     webapp_basedir: str
+    git_sha: Optional[str] = None
     connected_at: datetime
     last_seen: datetime
     # Disc status (updated via WebSocket)

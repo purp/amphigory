@@ -293,6 +293,7 @@ class WebAppClient:
         daemon_id: str,
         makemkvcon_path: Optional[str],
         webapp_basedir: str,
+        git_sha: Optional[str] = None,
     ) -> None:
         """
         Send daemon configuration to the webapp.
@@ -301,6 +302,7 @@ class WebAppClient:
             daemon_id: Unique daemon identifier
             makemkvcon_path: Path to makemkvcon binary
             webapp_basedir: Local path to webapp data directory
+            git_sha: Git commit SHA of daemon code
         """
         await self._send({
             "type": "daemon_config",
@@ -308,6 +310,7 @@ class WebAppClient:
             "daemon_id": daemon_id,
             "makemkvcon_path": makemkvcon_path,
             "webapp_basedir": webapp_basedir,
+            "git_sha": git_sha,
         })
 
     async def send_heartbeat(self) -> None:
@@ -372,6 +375,7 @@ class WebAppClient:
         daemon_id: str,
         makemkvcon_path: Optional[str],
         webapp_basedir: str,
+        git_sha: Optional[str] = None,
         reconnect_delay: float = 5.0,
         on_connect: Optional[Callable[[], None]] = None,
         on_disconnect: Optional[Callable[[], None]] = None,
@@ -387,6 +391,7 @@ class WebAppClient:
             daemon_id: Daemon identifier to send on connect
             makemkvcon_path: Path to makemkvcon to send on connect
             webapp_basedir: Data directory to send on connect
+            git_sha: Git commit SHA of daemon code
             reconnect_delay: Seconds to wait between reconnection attempts
             on_connect: Callback when connection established
             on_disconnect: Callback when connection lost
@@ -403,6 +408,7 @@ class WebAppClient:
                         daemon_id=daemon_id,
                         makemkvcon_path=makemkvcon_path,
                         webapp_basedir=webapp_basedir,
+                        git_sha=git_sha,
                     )
                     logger.info("Connected to webapp, sent daemon_config")
                     if on_connect:

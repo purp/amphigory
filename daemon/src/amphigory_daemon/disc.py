@@ -120,22 +120,29 @@ class DiscDetector(NSObject):
                 path = str(path.path())
             else:
                 path = user_info.get("NSDevicePath", "")
+            logger.info(f"Mount path extracted: {path}")
 
             # Check if this is an optical disc
             # Optical discs typically mount under /Volumes
             if not path.startswith("/Volumes/"):
+                logger.info(f"Ignoring mount - not under /Volumes: {path}")
                 return
 
             # Try to determine if it's an optical disc
             volume_name = path.split("/")[-1] if path else ""
+            logger.info(f"Volume name: {volume_name}")
 
             # Get device path
             device = self._get_device_for_volume(path)
+            logger.info(f"Device for volume {path}: {device}")
             if not device:
+                logger.info(f"No device found for {path} - ignoring mount")
                 return
 
             # Check if device is optical (rdisk with specific characteristics)
-            if self._is_optical_device(device):
+            is_optical = self._is_optical_device(device)
+            logger.info(f"Is {device} optical? {is_optical}")
+            if is_optical:
                 logger.info(f"Optical disc inserted: {volume_name} at {device}")
                 self._current_volume_path = path
                 if self._on_insert:
@@ -199,9 +206,10 @@ class DiscDetector(NSObject):
                         # Convert to raw device
                         if device.startswith("/dev/disk"):
                             device = device.replace("/dev/disk", "/dev/rdisk")
-                            # Remove slice suffix if present
-                            if "s" in device:
-                                device = device.split("s")[0]
+                            # Remove slice suffix if present (e.g., s0, s1)
+                            # Use regex to match only trailing slice numbers
+                            import re
+                            device = re.sub(r's\d+$', '', device)
                         return device
         except Exception as e:
             logger.error(f"Error getting device for volume: {e}")
@@ -229,9 +237,13 @@ class DiscDetector(NSObject):
                 timeout=5,
             )
             if result.returncode != 0:
+                logger.info(f"diskutil info {device} failed with code {result.returncode}")
+                logger.info(f"stderr: {result.stderr}")
                 return False
 
             output = result.stdout.lower()
+            logger.debug(f"diskutil info output for {device}:\n{result.stdout}")
+
             # Look for optical disc indicators
             optical_indicators = [
                 "bd-rom",
@@ -242,7 +254,10 @@ class DiscDetector(NSObject):
                 "optical",
                 "blu-ray",
             ]
-            return any(ind in output for ind in optical_indicators)
+            found = [ind for ind in optical_indicators if ind in output]
+            if found:
+                logger.info(f"Found optical indicators: {found}")
+            return len(found) > 0
 
         except Exception as e:
             logger.error(f"Error checking if device is optical: {e}")

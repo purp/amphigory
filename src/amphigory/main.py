@@ -207,14 +207,17 @@ async def websocket_endpoint(websocket: WebSocket):
                     daemon_id = message.get("daemon_id")
                     if daemon_id:
                         now = datetime.now()
+                        git_sha = message.get("git_sha")
                         _daemons[daemon_id] = RegisteredDaemon(
                             daemon_id=daemon_id,
                             makemkvcon_path=message.get("makemkvcon_path"),
                             webapp_basedir=message.get("webapp_basedir", ""),
+                            git_sha=git_sha,
                             connected_at=now,
                             last_seen=now,
                         )
-                        uvi_logger.info(f"Daemon registered: {daemon_id}")
+                        sha_info = f" (git: {git_sha})" if git_sha else ""
+                        uvi_logger.info(f"Daemon registered: {daemon_id}{sha_info}")
 
                 elif msg_type == "disc_event" and daemon_id:
                     # Update disc status for daemon
@@ -224,10 +227,12 @@ async def websocket_endpoint(websocket: WebSocket):
                             _daemons[daemon_id].disc_inserted = True
                             _daemons[daemon_id].disc_device = message.get("device")
                             _daemons[daemon_id].disc_volume = message.get("volume_name")
+                            uvi_logger.info(f"Disc inserted: {message.get('volume_name')} at {message.get('device')} (daemon: {daemon_id})")
                         elif event == "ejected":
                             _daemons[daemon_id].disc_inserted = False
                             _daemons[daemon_id].disc_device = None
                             _daemons[daemon_id].disc_volume = None
+                            uvi_logger.info(f"Disc ejected (daemon: {daemon_id})")
 
                         # Broadcast to browser clients
                         await manager.broadcast({
