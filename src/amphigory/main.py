@@ -154,6 +154,19 @@ async def websocket_endpoint(websocket: WebSocket):
                         )
                         logger.info(f"Daemon registered: {daemon_id}")
 
+                elif msg_type == "disc_event" and daemon_id:
+                    # Update disc status for daemon
+                    if daemon_id in _daemons:
+                        event = message.get("event")
+                        if event == "inserted":
+                            _daemons[daemon_id].disc_inserted = True
+                            _daemons[daemon_id].disc_device = message.get("device")
+                            _daemons[daemon_id].disc_volume = message.get("volume_name")
+                        elif event == "ejected":
+                            _daemons[daemon_id].disc_inserted = False
+                            _daemons[daemon_id].disc_device = None
+                            _daemons[daemon_id].disc_volume = None
+
                 elif msg_type == "heartbeat" and daemon_id:
                     # Update last_seen on heartbeat
                     if daemon_id in _daemons:

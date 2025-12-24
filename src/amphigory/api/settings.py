@@ -28,6 +28,10 @@ class RegisteredDaemon(BaseModel):
     webapp_basedir: str
     connected_at: datetime
     last_seen: datetime
+    # Disc status (updated via WebSocket)
+    disc_inserted: bool = False
+    disc_device: Optional[str] = None
+    disc_volume: Optional[str] = None
 
 
 # In-memory daemon registry (will be replaced by proper storage later)
