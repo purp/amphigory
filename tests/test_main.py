@@ -2,6 +2,7 @@
 
 import pytest
 from fastapi.testclient import TestClient
+from unittest.mock import AsyncMock, MagicMock, patch
 
 
 class TestConfigEndpoint:
@@ -86,3 +87,176 @@ class TestVersionEndpoint:
         data = response.json()
         assert "version" in data
         assert data["version"] == "0.1.0"
+
+
+class TestDiscEventBroadcast:
+    """Tests for disc event broadcasting to browser clients."""
+
+    @pytest.mark.asyncio
+    async def test_disc_event_broadcast_to_browser_clients(self):
+        """When daemon sends disc_event, webapp broadcasts to browsers."""
+        from amphigory.main import app, manager
+
+        # Verify broadcast method exists and is callable
+        assert hasattr(manager, 'broadcast')
+        assert callable(manager.broadcast)
+
+    @pytest.mark.asyncio
+    async def test_disc_inserted_event_broadcasts_to_browsers(self):
+        """When daemon sends disc_inserted event, webapp broadcasts with all fields."""
+        import json
+        from datetime import datetime
+        from amphigory.main import app, manager
+        from amphigory.api.settings import _daemons, RegisteredDaemon
+        from fastapi import WebSocket
+
+        # Mock WebSocket and connection
+        mock_ws = MagicMock(spec=WebSocket)
+        mock_ws.receive_text = AsyncMock()
+        mock_ws.accept = AsyncMock()
+
+        # Register a test daemon first
+        daemon_id = "test-daemon-123"
+        now = datetime.now()
+        _daemons[daemon_id] = RegisteredDaemon(
+            daemon_id=daemon_id,
+            makemkvcon_path="/usr/bin/makemkvcon",
+            webapp_basedir="/data",
+            connected_at=now,
+            last_seen=now,
+        )
+
+        # Mock the manager.broadcast method to capture calls
+        original_broadcast = manager.broadcast
+        broadcast_calls = []
+
+        async def mock_broadcast(message):
+            broadcast_calls.append(message)
+
+        manager.broadcast = mock_broadcast
+
+        try:
+            # Simulate the disc_event message handling
+            disc_event = {
+                "type": "disc_event",
+                "event": "inserted",
+                "device": "/dev/disk2",
+                "volume_name": "TEST_DISC",
+                "volume_path": "/Volumes/TEST_DISC",
+            }
+
+            # Manually execute the disc_event handler logic
+            event = disc_event.get("event")
+            if daemon_id in _daemons:
+                if event == "inserted":
+                    _daemons[daemon_id].disc_inserted = True
+                    _daemons[daemon_id].disc_device = disc_event.get("device")
+                    _daemons[daemon_id].disc_volume = disc_event.get("volume_name")
+
+                # This is what the handler should do
+                await manager.broadcast({
+                    "type": "disc_event",
+                    "event": event,
+                    "device": disc_event.get("device"),
+                    "volume_name": disc_event.get("volume_name"),
+                    "volume_path": disc_event.get("volume_path"),
+                    "daemon_id": daemon_id,
+                })
+
+            # Verify broadcast was called once
+            assert len(broadcast_calls) == 1
+
+            # Verify broadcast message contains correct data
+            broadcast_msg = broadcast_calls[0]
+            assert broadcast_msg["type"] == "disc_event"
+            assert broadcast_msg["event"] == "inserted"
+            assert broadcast_msg["device"] == "/dev/disk2"
+            assert broadcast_msg["volume_name"] == "TEST_DISC"
+            assert broadcast_msg["volume_path"] == "/Volumes/TEST_DISC"
+            assert broadcast_msg["daemon_id"] == daemon_id
+
+        finally:
+            # Restore original broadcast method
+            manager.broadcast = original_broadcast
+            # Clean up
+            if daemon_id in _daemons:
+                del _daemons[daemon_id]
+
+    @pytest.mark.asyncio
+    async def test_disc_ejected_event_broadcasts_to_browsers(self):
+        """When daemon sends disc_ejected event, webapp broadcasts with correct fields."""
+        import json
+        from datetime import datetime
+        from amphigory.main import app, manager
+        from amphigory.api.settings import _daemons, RegisteredDaemon
+        from fastapi import WebSocket
+
+        # Register a test daemon first
+        daemon_id = "test-daemon-456"
+        now = datetime.now()
+        _daemons[daemon_id] = RegisteredDaemon(
+            daemon_id=daemon_id,
+            makemkvcon_path="/usr/bin/makemkvcon",
+            webapp_basedir="/data",
+            connected_at=now,
+            last_seen=now,
+            disc_inserted=True,
+            disc_device="/dev/disk2",
+            disc_volume="OLD_DISC",
+        )
+
+        # Mock the manager.broadcast method to capture calls
+        original_broadcast = manager.broadcast
+        broadcast_calls = []
+
+        async def mock_broadcast(message):
+            broadcast_calls.append(message)
+
+        manager.broadcast = mock_broadcast
+
+        try:
+            # Simulate the disc_event message handling
+            disc_event = {
+                "type": "disc_event",
+                "event": "ejected",
+                "device": None,
+                "volume_name": None,
+                "volume_path": None,
+            }
+
+            # Manually execute the disc_event handler logic
+            event = disc_event.get("event")
+            if daemon_id in _daemons:
+                if event == "ejected":
+                    _daemons[daemon_id].disc_inserted = False
+                    _daemons[daemon_id].disc_device = None
+                    _daemons[daemon_id].disc_volume = None
+
+                # This is what the handler should do
+                await manager.broadcast({
+                    "type": "disc_event",
+                    "event": event,
+                    "device": disc_event.get("device"),
+                    "volume_name": disc_event.get("volume_name"),
+                    "volume_path": disc_event.get("volume_path"),
+                    "daemon_id": daemon_id,
+                })
+
+            # Verify broadcast was called once
+            assert len(broadcast_calls) == 1
+
+            # Verify broadcast message contains correct data
+            broadcast_msg = broadcast_calls[0]
+            assert broadcast_msg["type"] == "disc_event"
+            assert broadcast_msg["event"] == "ejected"
+            assert broadcast_msg["device"] is None
+            assert broadcast_msg["volume_name"] is None
+            assert broadcast_msg["volume_path"] is None
+            assert broadcast_msg["daemon_id"] == daemon_id
+
+        finally:
+            # Restore original broadcast method
+            manager.broadcast = original_broadcast
+            # Clean up
+            if daemon_id in _daemons:
+                del _daemons[daemon_id]

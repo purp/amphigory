@@ -229,6 +229,16 @@ async def websocket_endpoint(websocket: WebSocket):
                             _daemons[daemon_id].disc_device = None
                             _daemons[daemon_id].disc_volume = None
 
+                        # Broadcast to browser clients
+                        await manager.broadcast({
+                            "type": "disc_event",
+                            "event": event,
+                            "device": message.get("device"),
+                            "volume_name": message.get("volume_name"),
+                            "volume_path": message.get("volume_path"),
+                            "daemon_id": daemon_id,
+                        })
+
                 elif msg_type == "heartbeat" and daemon_id:
                     # Update last_seen on heartbeat
                     if daemon_id in _daemons:
