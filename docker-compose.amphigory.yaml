@@ -15,7 +15,7 @@ services:
     container_name: amphigory
     restart: unless-stopped
     ports:
-      - "8080:8080"
+      - "6199:6199"
     environment:
       # Timezone
       - TZ=America/Los_Angeles
@@ -45,15 +45,9 @@ services:
       # Wiki integration for Gollum
       - /opt/beehive-docker/gollum/wiki-data:/wiki
 
-    devices:
-      # Optical drive passthrough
-      # Update this device path based on your system
-      # Use 'diskutil list' on macOS to find the correct device
-      - /dev/rdisk4:/dev/cdrom
-
-    # Privileged mode may be needed for optical drive access
-    # This gives the container full access to the host's devices
-    privileged: true
+    # Note: Optical drive access is handled by the native macOS daemon,
+    # not the container. The daemon rips to shared storage, then the
+    # container's HandBrakeCLI transcodes the files.
 
     # Optional: limit resources
     # deploy:
@@ -67,7 +61,7 @@ services:
 
     # Health check
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      test: ["CMD", "curl", "-f", "http://localhost:6199/health"]
       interval: 30s
       timeout: 10s
       retries: 3
