@@ -591,29 +591,30 @@ class AmphigoryDaemon(rumps.App):
             await self.ws_server.start()
             logger.info(f"WebSocket server started on port {self.webapp_config.websocket_port}")
 
-            # Connect to webapp's WebSocket endpoint
+            # Connect to webapp's WebSocket endpoint with auto-reconnect
             webapp_ws_url = f"{self.daemon_config.webapp_url.replace('http', 'ws')}/ws"
             self.webapp_client = WebAppClient(webapp_ws_url)
-            try:
-                await self.webapp_client.connect()
-                await self.webapp_client.send_daemon_config(
+
+            def on_webapp_connect():
+                self.status_overlays.discard(StatusOverlay.DISCONNECTED)
+                self._update_icon()
+
+            def on_webapp_disconnect():
+                self.status_overlays.add(StatusOverlay.DISCONNECTED)
+                self._update_icon()
+
+            # Start reconnecting connection loop in background
+            self._heartbeat_task = asyncio.create_task(
+                self.webapp_client.run_with_reconnect(
+                    heartbeat_interval=self.webapp_config.heartbeat_interval,
                     daemon_id=self.daemon_config.daemon_id,
                     makemkvcon_path=self.daemon_config.makemkvcon_path,
                     webapp_basedir=self.daemon_config.webapp_basedir,
+                    on_connect=on_webapp_connect,
+                    on_disconnect=on_webapp_disconnect,
                 )
-                logger.info(f"Connected to webapp at {webapp_ws_url}")
-
-                # Start heartbeat loop
-                self._heartbeat_task = asyncio.create_task(
-                    self.webapp_client.start_heartbeat_loop(
-                        self.webapp_config.heartbeat_interval
-                    )
-                )
-                logger.info(f"Heartbeat loop started (interval: {self.webapp_config.heartbeat_interval}s)")
-            except Exception as e:
-                logger.warning(f"Could not connect to webapp WebSocket: {e}")
-                self.status_overlays.add(StatusOverlay.DISCONNECTED)
-                self._update_icon()
+            )
+            logger.info(f"Started webapp connection loop to {webapp_ws_url}")
 
             # Initialize disc detector
             self.disc_detector = DiscDetector(

@@ -332,3 +332,66 @@ class WebAppClient:
         except Exception:
             # Connection lost or other error - exit loop
             pass
+
+    async def run_with_reconnect(
+        self,
+        heartbeat_interval: float,
+        daemon_id: str,
+        makemkvcon_path: Optional[str],
+        webapp_basedir: str,
+        reconnect_delay: float = 5.0,
+        on_connect: Optional[Callable[[], None]] = None,
+        on_disconnect: Optional[Callable[[], None]] = None,
+    ) -> None:
+        """
+        Run connection loop with automatic reconnection.
+
+        Maintains connection to webapp, reconnecting if it drops.
+        Sends daemon_config on each connect and runs heartbeat loop.
+
+        Args:
+            heartbeat_interval: Seconds between heartbeats
+            daemon_id: Daemon identifier to send on connect
+            makemkvcon_path: Path to makemkvcon to send on connect
+            webapp_basedir: Data directory to send on connect
+            reconnect_delay: Seconds to wait between reconnection attempts
+            on_connect: Callback when connection established
+            on_disconnect: Callback when connection lost
+        """
+        import logging
+        logger = logging.getLogger(__name__)
+
+        while True:
+            try:
+                if not self.is_connected():
+                    logger.info(f"Connecting to webapp at {self.url}")
+                    await self.connect()
+                    await self.send_daemon_config(
+                        daemon_id=daemon_id,
+                        makemkvcon_path=makemkvcon_path,
+                        webapp_basedir=webapp_basedir,
+                    )
+                    logger.info("Connected to webapp, sent daemon_config")
+                    if on_connect:
+                        on_connect()
+
+                # Run heartbeat until disconnected
+                while self.is_connected():
+                    await self.send_heartbeat()
+                    await asyncio.sleep(heartbeat_interval)
+
+                # Connection lost
+                logger.warning("Lost connection to webapp")
+                if on_disconnect:
+                    on_disconnect()
+
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                logger.warning(f"Webapp connection error: {e}")
+                if on_disconnect:
+                    on_disconnect()
+
+            # Wait before reconnecting
+            logger.info(f"Reconnecting in {reconnect_delay}s...")
+            await asyncio.sleep(reconnect_delay)

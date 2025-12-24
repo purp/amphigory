@@ -687,8 +687,7 @@ class TestStartupValidation:
                         mock_ws.return_value = mock_ws_instance
                         with patch("amphigory_daemon.main.WebAppClient") as mock_client:
                             mock_client_instance = MagicMock()
-                            mock_client_instance.connect = AsyncMock()
-                            mock_client_instance.send_daemon_config = AsyncMock()
+                            mock_client_instance.run_with_reconnect = AsyncMock()
                             mock_client.return_value = mock_client_instance
                             with patch("amphigory_daemon.main.DiscDetector") as mock_disc:
                                 mock_disc_instance = MagicMock()
@@ -701,8 +700,8 @@ class TestStartupValidation:
         assert result is True
 
     @pytest.mark.asyncio
-    async def test_initialize_starts_heartbeat_loop(self, tmp_path):
-        """initialize() starts the heartbeat loop after connecting to webapp."""
+    async def test_initialize_starts_webapp_connection_loop(self, tmp_path):
+        """initialize() starts the webapp connection loop with auto-reconnect."""
         from amphigory_daemon.main import AmphigoryDaemon
         from amphigory_daemon.models import DaemonConfig, WebappConfig
         from amphigory_daemon.config import ConfigValidationResult
@@ -748,9 +747,7 @@ class TestStartupValidation:
                         mock_ws.return_value = mock_ws_instance
                         with patch("amphigory_daemon.main.WebAppClient") as mock_client:
                             mock_client_instance = MagicMock()
-                            mock_client_instance.connect = AsyncMock()
-                            mock_client_instance.send_daemon_config = AsyncMock()
-                            mock_client_instance.start_heartbeat_loop = AsyncMock()
+                            mock_client_instance.run_with_reconnect = AsyncMock()
                             mock_client.return_value = mock_client_instance
                             with patch("amphigory_daemon.main.DiscDetector") as mock_disc:
                                 mock_disc_instance = MagicMock()
@@ -759,8 +756,14 @@ class TestStartupValidation:
                                 with patch("amphigory_daemon.main.TaskQueue"):
                                     await daemon.initialize(config_file, cache_file)
 
-                            # Verify heartbeat loop was started as a task
+                            # Verify connection loop was started as a task
                             assert daemon._heartbeat_task is not None
+                            # Verify run_with_reconnect was called with correct args
+                            mock_client_instance.run_with_reconnect.assert_called_once()
+                            call_kwargs = mock_client_instance.run_with_reconnect.call_args.kwargs
+                            assert call_kwargs["heartbeat_interval"] == 30
+                            assert "on_connect" in call_kwargs
+                            assert "on_disconnect" in call_kwargs
 
 
 class TestConfigChangeHandling:
@@ -814,9 +817,7 @@ class TestConfigChangeHandling:
                         mock_ws.return_value = mock_ws_instance
                         with patch("amphigory_daemon.main.WebAppClient") as mock_client:
                             mock_client_instance = MagicMock()
-                            mock_client_instance.connect = AsyncMock()
-                            mock_client_instance.send_daemon_config = AsyncMock()
-                            mock_client_instance.start_heartbeat_loop = AsyncMock()
+                            mock_client_instance.run_with_reconnect = AsyncMock()
                             mock_client.return_value = mock_client_instance
                             with patch("amphigory_daemon.main.DiscDetector") as mock_disc:
                                 mock_disc_instance = MagicMock()
@@ -878,9 +879,7 @@ class TestConfigChangeHandling:
                         mock_ws.return_value = mock_ws_instance
                         with patch("amphigory_daemon.main.WebAppClient") as mock_client:
                             mock_client_instance = MagicMock()
-                            mock_client_instance.connect = AsyncMock()
-                            mock_client_instance.send_daemon_config = AsyncMock()
-                            mock_client_instance.start_heartbeat_loop = AsyncMock()
+                            mock_client_instance.run_with_reconnect = AsyncMock()
                             mock_client.return_value = mock_client_instance
                             with patch("amphigory_daemon.main.DiscDetector") as mock_disc:
                                 mock_disc_instance = MagicMock()
