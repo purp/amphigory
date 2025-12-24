@@ -34,4 +34,4 @@ ENV AMPHIGORY_DATA=/data
 
 EXPOSE 6199
 
-CMD ["uvicorn", "amphigory.main:app", "--host", "0.0.0.0", "--port", "6199"]
+CMD ["uvicorn", "amphigory.main:app", "--host", "0.0.0.0", "--port", "6199", "--log-config", "/app/config/logging.yaml"]
