@@ -19,7 +19,6 @@ class AmphigoryWebSocket {
         };
 
         // UI elements
-        this.statusIndicator = null;
         this.discInfo = null;
     }
 
@@ -27,11 +26,7 @@ class AmphigoryWebSocket {
      * Initialize the WebSocket connection
      */
     init() {
-        this.statusIndicator = document.getElementById('daemon-status');
         this.discInfo = document.getElementById('disc-info');
-
-        // Fetch initial daemon status
-        this.fetchDaemonStatus();
 
         this.connect();
 
@@ -40,21 +35,6 @@ class AmphigoryWebSocket {
         this.on('disc_event', (data) => this.handleDiscEvent(data));
         this.on('progress', (data) => this.handleProgress(data));
         this.on('heartbeat', (data) => this.handleHeartbeat(data));
-    }
-
-    /**
-     * Fetch daemon status from API
-     */
-    async fetchDaemonStatus() {
-        try {
-            const response = await fetch('/api/settings/daemons/json');
-            const data = await response.json();
-            const daemonCount = data.daemons ? data.daemons.length : 0;
-            this.updateDaemonStatus(daemonCount > 0, daemonCount);
-        } catch (error) {
-            console.error('Failed to fetch daemon status:', error);
-            this.updateDaemonStatus(false, 0);
-        }
     }
 
     /**
@@ -70,8 +50,6 @@ class AmphigoryWebSocket {
             this.ws.onopen = () => {
                 console.log('WebSocket connected');
                 this.reconnectAttempts = 0;
-                // Refresh daemon status when reconnected
-                this.fetchDaemonStatus();
             };
 
             this.ws.onclose = (event) => {
@@ -144,30 +122,10 @@ class AmphigoryWebSocket {
     }
 
     /**
-     * Update the daemon status indicator based on actual daemon connections
-     */
-    updateDaemonStatus(connected, count = 0) {
-        if (!this.statusIndicator) return;
-
-        if (connected) {
-            this.statusIndicator.className = 'daemon-status status-connected';
-            const text = count === 1 ? 'Daemon Connected' : `${count} Daemons Connected`;
-            this.statusIndicator.textContent = text;
-            this.statusIndicator.title = text;
-        } else {
-            this.statusIndicator.className = 'daemon-status status-disconnected';
-            this.statusIndicator.textContent = 'No Daemon';
-            this.statusIndicator.title = 'No daemon connected';
-        }
-    }
-
-    /**
      * Handle daemon_config message (daemon connected to webapp)
      */
     handleDaemonConfig(data) {
         console.log('Daemon registered:', data.daemon_id);
-        // Refresh daemon status from API to get accurate count
-        this.fetchDaemonStatus();
         this.updateDaemonInfo(data);
     }
 

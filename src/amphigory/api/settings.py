@@ -69,21 +69,6 @@ def _format_relative_time(dt: datetime) -> str:
     return f"{hours}h ago"
 
 
-@router.get("/daemons/json")
-async def list_daemons_json():
-    """Return JSON list of connected daemons for JavaScript."""
-    return {
-        "daemons": [
-            {
-                "daemon_id": d.daemon_id,
-                "disc_inserted": d.disc_inserted,
-                "disc_volume": d.disc_volume,
-            }
-            for d in _daemons.values()
-        ]
-    }
-
-
 @router.get("/daemons", response_class=HTMLResponse)
 async def list_daemons_html():
     """Return HTML fragment of connected daemons for HTMX."""
@@ -96,14 +81,9 @@ async def list_daemons_html():
         status_text = "Connected"
         last_seen = _format_relative_time(daemon.last_seen)
 
-        # Validate makemkvcon path
-        makemkv_valid = daemon.makemkvcon_path and _validate_path(daemon.makemkvcon_path)
-        makemkv_class = "valid" if makemkv_valid else "invalid"
+        # Note: Don't validate daemon paths here - they're on the daemon's machine,
+        # not in this container. The daemon validates its own paths.
         makemkv_display = daemon.makemkvcon_path or "not configured"
-
-        # Validate basedir
-        basedir_valid = _validate_path(daemon.webapp_basedir)
-        basedir_class = "valid" if basedir_valid else "invalid"
 
         html_parts.append(f'''
         <div class="daemon-item">
@@ -114,11 +94,11 @@ async def list_daemons_html():
             <div class="daemon-config">
                 <div class="daemon-config-item">
                     <span class="daemon-config-label">makemkvcon</span>
-                    <span class="daemon-config-value {makemkv_class}">{makemkv_display}</span>
+                    <span class="daemon-config-value">{makemkv_display}</span>
                 </div>
                 <div class="daemon-config-item">
                     <span class="daemon-config-label">Data Directory</span>
-                    <span class="daemon-config-value {basedir_class}">{daemon.webapp_basedir}</span>
+                    <span class="daemon-config-value">{daemon.webapp_basedir}</span>
                 </div>
             </div>
             <div class="daemon-details">
