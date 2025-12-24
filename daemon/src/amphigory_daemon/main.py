@@ -466,9 +466,9 @@ class AmphigoryDaemon(rumps.App):
         # Start proactive scan
         asyncio.create_task(self._proactive_scan(device))
 
-    def on_disc_eject(self, device: str) -> None:
+    def on_disc_eject(self, volume_path: str) -> None:
         """Handle disc ejection."""
-        logger.info(f"Disc ejected from {device}")
+        logger.info(f"Disc ejected: {volume_path}")
         self.current_disc = None
         self.scan_cache = None
         self.activity_state = ActivityState.IDLE_EMPTY
@@ -478,13 +478,13 @@ class AmphigoryDaemon(rumps.App):
         # Send WebSocket event to webapp (Docker container)
         if self.webapp_client and self.webapp_client.is_connected():
             asyncio.create_task(
-                self.webapp_client.send_disc_event("ejected", device)
+                self.webapp_client.send_disc_event("ejected", volume_path=volume_path)
             )
 
         # Also send to local browser clients (if any connected to daemon directly)
         if self.ws_server:
             asyncio.create_task(
-                self.ws_server.send_disc_event("ejected", device)
+                self.ws_server.send_disc_event("ejected", volume_path=volume_path)
             )
 
     async def _proactive_scan(self, device: str) -> None:
@@ -885,10 +885,10 @@ def main():
             )
         )
 
-    def on_eject_wrapper(device: str):
+    def on_eject_wrapper(volume_path: str):
         loop.call_soon_threadsafe(
             lambda: asyncio.create_task(
-                _async_on_disc_eject(app, device)
+                _async_on_disc_eject(app, volume_path)
             )
         )
 
@@ -918,9 +918,9 @@ async def _async_on_disc_insert(app: AmphigoryDaemon, device: str, volume_name: 
     app.on_disc_insert(device, volume_name)
 
 
-async def _async_on_disc_eject(app: AmphigoryDaemon, device: str):
+async def _async_on_disc_eject(app: AmphigoryDaemon, volume_path: str):
     """Async handler for disc ejection (runs on async thread)."""
-    app.on_disc_eject(device)
+    app.on_disc_eject(volume_path)
 
 
 if __name__ == "__main__":

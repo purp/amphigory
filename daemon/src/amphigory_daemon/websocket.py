@@ -133,8 +133,9 @@ class WebSocketServer:
     async def send_disc_event(
         self,
         event: str,
-        device: str,
+        device: str = None,
         volume_name: Optional[str] = None,
+        volume_path: Optional[str] = None,
     ) -> None:
         """
         Send disc inserted/ejected event.
@@ -143,14 +144,18 @@ class WebSocketServer:
             event: "inserted" or "ejected"
             device: Device path (e.g., "/dev/rdisk4")
             volume_name: Volume name for inserted disc
+            volume_path: Volume path (e.g., "/Volumes/TEST_DISC")
         """
         message = {
             "type": "disc",
             "event": event,
-            "device": device,
         }
+        if device is not None:
+            message["device"] = device
         if volume_name is not None:
             message["volume_name"] = volume_name
+        if volume_path is not None:
+            message["volume_path"] = volume_path
 
         await self.broadcast(message)
 
@@ -315,8 +320,9 @@ class WebAppClient:
     async def send_disc_event(
         self,
         event: str,
-        device: str,
+        device: str = None,
         volume_name: Optional[str] = None,
+        volume_path: Optional[str] = None,
     ) -> None:
         """
         Send disc inserted/ejected event to webapp.
@@ -325,14 +331,18 @@ class WebAppClient:
             event: "inserted" or "ejected"
             device: Device path (e.g., "/dev/rdisk4")
             volume_name: Volume name for inserted disc
+            volume_path: Volume path (e.g., "/Volumes/TEST_DISC")
         """
         message = {
             "type": "disc_event",
             "event": event,
-            "device": device,
         }
+        if device is not None:
+            message["device"] = device
         if volume_name is not None:
             message["volume_name"] = volume_name
+        if volume_path is not None:
+            message["volume_path"] = volume_path
         await self._send(message)
 
     async def start_heartbeat_loop(self, interval: float) -> None:

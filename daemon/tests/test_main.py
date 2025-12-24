@@ -945,3 +945,23 @@ class TestStorageHandling:
         daemon.daemon_config = None
 
         assert daemon.is_storage_available() is False
+
+
+class TestDiscEjectHandler:
+    """Tests for disc ejection handler with path-based callback."""
+
+    def test_on_disc_eject_clears_state(self):
+        """on_disc_eject clears disc state when called with volume path."""
+        from amphigory_daemon.main import AmphigoryDaemon
+        from amphigory_daemon.icons import ActivityState
+
+        daemon = AmphigoryDaemon()
+        daemon.current_disc = ("/dev/rdisk5", "TEST_DISC")
+        daemon.scan_cache = "some cached data"
+        daemon.activity_state = ActivityState.IDLE_DISC
+
+        daemon.on_disc_eject("/Volumes/TEST_DISC")
+
+        assert daemon.current_disc is None
+        assert daemon.scan_cache is None
+        assert daemon.activity_state == ActivityState.IDLE_EMPTY
