@@ -965,3 +965,77 @@ class TestDiscEjectHandler:
         assert daemon.current_disc is None
         assert daemon.scan_cache is None
         assert daemon.activity_state == ActivityState.IDLE_EMPTY
+
+
+class TestScanCacheBehavior:
+    """Tests for scan task cache clearing behavior."""
+
+    @pytest.mark.asyncio
+    async def test_scan_task_clears_cache_before_scanning(self):
+        """Scan task clears existing cache before running scan."""
+        from amphigory_daemon.main import AmphigoryDaemon, ScanCache
+        from amphigory_daemon.models import ScanTask, ScanResult
+        from datetime import datetime
+        from unittest.mock import AsyncMock, patch, MagicMock
+
+        daemon = AmphigoryDaemon()
+        daemon.makemkv_path = "/usr/bin/makemkvcon"
+        daemon.current_disc = ("/dev/rdisk5", "TEST_DISC")
+
+        # Set up existing cache
+        old_cache = ScanCache(
+            device="/dev/rdisk5",
+            result=MagicMock(),
+            scanned_at=datetime(2024, 1, 1),
+        )
+        daemon.scan_cache = old_cache
+
+        task = ScanTask(id="test-123", type="scan", created_at=datetime.now())
+
+        # Track when cache is cleared
+        cache_cleared_during_scan = None
+
+        async def mock_subprocess(*args, **kwargs):
+            nonlocal cache_cleared_during_scan
+            cache_cleared_during_scan = daemon.scan_cache is None
+            mock_proc = MagicMock()
+            mock_proc.communicate = AsyncMock(return_value=(b"", b""))
+            mock_proc.returncode = 0
+            return mock_proc
+
+        with patch('asyncio.create_subprocess_exec', mock_subprocess):
+            with patch('amphigory_daemon.main.parse_scan_output') as mock_parse:
+                mock_parse.return_value = ScanResult(
+                    disc_name="TEST", disc_type="BD", tracks=[]
+                )
+                await daemon._handle_scan_task(task)
+
+        assert cache_cleared_during_scan is True, "Cache should be cleared before scan runs"
+
+    @pytest.mark.asyncio
+    async def test_scan_task_repopulates_cache_after_scan(self):
+        """Scan task updates cache with fresh results."""
+        from amphigory_daemon.main import AmphigoryDaemon
+        from amphigory_daemon.models import ScanTask, ScanResult
+        from datetime import datetime
+        from unittest.mock import AsyncMock, patch, MagicMock
+
+        daemon = AmphigoryDaemon()
+        daemon.makemkv_path = "/usr/bin/makemkvcon"
+        daemon.current_disc = ("/dev/rdisk5", "TEST_DISC")
+        daemon.scan_cache = None
+
+        task = ScanTask(id="test-123", type="scan", created_at=datetime.now())
+
+        mock_proc = MagicMock()
+        mock_proc.communicate = AsyncMock(return_value=(b"scan output", b""))
+        mock_proc.returncode = 0
+
+        expected_result = ScanResult(disc_name="FRESH_SCAN", disc_type="BD", tracks=[])
+
+        with patch('asyncio.create_subprocess_exec', AsyncMock(return_value=mock_proc)):
+            with patch('amphigory_daemon.main.parse_scan_output', return_value=expected_result):
+                await daemon._handle_scan_task(task)
+
+        assert daemon.scan_cache is not None
+        assert daemon.scan_cache.result.disc_name == "FRESH_SCAN"

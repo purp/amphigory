@@ -702,24 +702,9 @@ class AmphigoryDaemon(rumps.App):
         """Handle a scan task."""
         started_at = datetime.now()
 
-        # Check cache
-        if (
-            self.scan_cache
-            and self.current_disc
-            and self.scan_cache.device == self.current_disc[0]
-        ):
-            logger.info("Using cached scan result")
-            completed_at = datetime.now()
-            return TaskResponse(
-                task_id=task.id,
-                status=TaskStatus.SUCCESS,
-                started_at=started_at,
-                completed_at=completed_at,
-                duration_seconds=int((completed_at - started_at).total_seconds()),
-                result=self.scan_cache.result,
-            )
+        # Always clear cache and run fresh scan
+        self.scan_cache = None
 
-        # Run fresh scan
         try:
             cmd = build_scan_command(self.makemkv_path)
             proc = await asyncio.create_subprocess_exec(
@@ -733,6 +718,14 @@ class AmphigoryDaemon(rumps.App):
 
             result = parse_scan_output(output)
             completed_at = datetime.now()
+
+            # Update cache with fresh results
+            if self.current_disc:
+                self.scan_cache = ScanCache(
+                    device=self.current_disc[0],
+                    result=result,
+                    scanned_at=completed_at,
+                )
 
             return TaskResponse(
                 task_id=task.id,
