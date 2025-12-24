@@ -7,7 +7,6 @@ These endpoints interact with the daemon via:
 
 import json
 import os
-import uuid
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -16,6 +15,7 @@ from fastapi import APIRouter, Request, HTTPException, status
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
+from amphigory.api.common import generate_task_id
 from amphigory.api.settings import _daemons
 
 router = APIRouter(prefix="/api/disc", tags=["disc"])
@@ -25,22 +25,6 @@ def get_tasks_dir() -> Path:
     """Get the tasks directory from environment."""
     data_dir = Path(os.environ.get("AMPHIGORY_DATA", "/data"))
     return data_dir / "tasks"
-
-
-def generate_task_id(task_type: str) -> str:
-    """Generate a human-readable task ID.
-
-    Format: YYYY-MM-DDTHH:MM:SS.ffffff-{task_type}
-    Example: 2024-12-24T14:30:15.123456-scan
-
-    Args:
-        task_type: Type of task (scan, rip, etc.)
-
-    Returns:
-        Human-readable task ID with timestamp and type
-    """
-    timestamp = datetime.now().isoformat(timespec='microseconds')
-    return f"{timestamp}-{task_type}"
 
 
 class DiscStatusResponse(BaseModel):
