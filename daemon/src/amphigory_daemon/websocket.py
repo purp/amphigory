@@ -227,3 +227,87 @@ class WebSocketServer:
             "makemkvcon_path": makemkvcon_path,
             "webapp_basedir": webapp_basedir,
         })
+
+
+class WebAppClient:
+    """WebSocket client for connecting to the webapp."""
+
+    def __init__(self, url: str):
+        """
+        Initialize WebSocket client.
+
+        Args:
+            url: WebSocket URL to connect to (e.g., ws://localhost:8000/ws)
+        """
+        self.url = url
+        self._websocket: Optional[websockets.WebSocketClientProtocol] = None
+        self._connected = False
+        self._receive_task: Optional[asyncio.Task] = None
+
+    async def connect(self) -> None:
+        """Connect to the webapp WebSocket endpoint."""
+        self._websocket = await websockets.connect(self.url)
+        self._connected = True
+        # Start background task to detect disconnection
+        self._receive_task = asyncio.create_task(self._receive_loop())
+
+    async def _receive_loop(self) -> None:
+        """Background loop to receive messages and detect disconnection."""
+        try:
+            async for message in self._websocket:
+                # Could handle incoming messages here if needed
+                pass
+        except websockets.exceptions.ConnectionClosed:
+            pass
+        finally:
+            self._connected = False
+
+    async def disconnect(self) -> None:
+        """Disconnect from the webapp."""
+        if self._receive_task:
+            self._receive_task.cancel()
+            try:
+                await self._receive_task
+            except asyncio.CancelledError:
+                pass
+        if self._websocket:
+            await self._websocket.close()
+        self._connected = False
+
+    def is_connected(self) -> bool:
+        """Check if client is connected."""
+        return self._connected and self._websocket is not None
+
+    async def _send(self, message: dict) -> None:
+        """Send a JSON message to the webapp."""
+        if self._websocket and self._connected:
+            await self._websocket.send(json.dumps(message))
+
+    async def send_daemon_config(
+        self,
+        daemon_id: str,
+        makemkvcon_path: Optional[str],
+        webapp_basedir: str,
+    ) -> None:
+        """
+        Send daemon configuration to the webapp.
+
+        Args:
+            daemon_id: Unique daemon identifier
+            makemkvcon_path: Path to makemkvcon binary
+            webapp_basedir: Local path to webapp data directory
+        """
+        await self._send({
+            "type": "daemon_config",
+            "timestamp": datetime.now().isoformat(),
+            "daemon_id": daemon_id,
+            "makemkvcon_path": makemkvcon_path,
+            "webapp_basedir": webapp_basedir,
+        })
+
+    async def send_heartbeat(self) -> None:
+        """Send heartbeat to the webapp."""
+        await self._send({
+            "type": "heartbeat",
+            "timestamp": datetime.now().isoformat(),
+        })

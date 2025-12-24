@@ -1,0 +1,103 @@
+{% extends "base.html" %}
+
+{% block title %}Settings - Amphigory{% endblock %}
+
+{% block content %}
+<div class="settings">
+    <h1>Settings</h1>
+
+    <section class="card">
+        <h2>Webapp Configuration</h2>
+        <div class="settings-grid">
+            <div class="setting-row">
+                <label for="tasks_directory">Tasks Directory</label>
+                <div class="setting-field">
+                    <input type="text" id="tasks_directory" name="tasks_directory"
+                           class="setting-input" value="{{ config.tasks_directory }}"
+                           hx-post="/api/settings/validate/path" hx-trigger="blur" hx-target="next .validation-icon">
+                    <span class="validation-icon"></span>
+                </div>
+            </div>
+            <div class="setting-row">
+                <label for="websocket_port">WebSocket Port</label>
+                <div class="setting-field">
+                    <input type="number" id="websocket_port" name="websocket_port"
+                           class="setting-input setting-input-short" value="{{ config.websocket_port }}"
+                           min="1024" max="65535">
+                </div>
+            </div>
+            <div class="setting-row">
+                <label for="wiki_url">Wiki URL</label>
+                <div class="setting-field">
+                    <input type="url" id="wiki_url" name="wiki_url"
+                           class="setting-input" value="{{ config.wiki_url }}"
+                           hx-post="/api/settings/validate/url" hx-trigger="blur" hx-target="next .validation-icon">
+                    <span class="validation-icon"></span>
+                </div>
+            </div>
+            <div class="setting-row">
+                <label for="heartbeat_interval">Heartbeat</label>
+                <div class="setting-field">
+                    <select id="heartbeat_interval" name="heartbeat_interval" class="setting-select">
+                        <option value="10" {% if config.heartbeat_interval == 10 %}selected{% endif %}>10 seconds</option>
+                        <option value="15" {% if config.heartbeat_interval == 15 %}selected{% endif %}>15 seconds</option>
+                        <option value="30" {% if config.heartbeat_interval == 30 %}selected{% endif %}>30 seconds</option>
+                        <option value="60" {% if config.heartbeat_interval == 60 %}selected{% endif %}>60 seconds</option>
+                    </select>
+                </div>
+            </div>
+            <div class="setting-row">
+                <label for="log_level">Log Level</label>
+                <div class="setting-field">
+                    <select id="log_level" name="log_level" class="setting-select">
+                        <option value="DEBUG" {% if config.log_level == 'DEBUG' %}selected{% endif %}>DEBUG</option>
+                        <option value="INFO" {% if config.log_level == 'INFO' %}selected{% endif %}>INFO</option>
+                        <option value="WARNING" {% if config.log_level == 'WARNING' %}selected{% endif %}>WARNING</option>
+                        <option value="ERROR" {% if config.log_level == 'ERROR' %}selected{% endif %}>ERROR</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="card">
+        <h2>Connected Daemons</h2>
+        <div id="daemons-list" hx-get="/api/settings/daemons" hx-trigger="load, every 10s" hx-swap="innerHTML">
+            <p class="text-muted">Loading...</p>
+        </div>
+    </section>
+
+    <section class="card">
+        <h2>Directories</h2>
+        <div class="settings-grid">
+            <div class="setting-row">
+                <label for="ripped_dir">Ripped Media</label>
+                <div class="setting-field">
+                    <input type="text" id="ripped_dir" name="ripped_dir"
+                           class="setting-input" value="{{ directories.ripped_dir }}"
+                           hx-post="/api/settings/validate/path" hx-trigger="blur" hx-target="next .validation-icon">
+                    <span class="validation-icon"></span>
+                </div>
+            </div>
+            <div class="setting-row">
+                <label for="inbox_dir">Plex Inbox</label>
+                <div class="setting-field">
+                    <input type="text" id="inbox_dir" name="inbox_dir"
+                           class="setting-input" value="{{ directories.inbox_dir }}"
+                           hx-post="/api/settings/validate/path" hx-trigger="blur" hx-target="next .validation-icon">
+                    <span class="validation-icon"></span>
+                </div>
+            </div>
+            <div class="setting-row">
+                <label for="plex_dir">Plex Library</label>
+                <div class="setting-field">
+                    <input type="text" id="plex_dir" name="plex_dir"
+                           class="setting-input" value="{{ directories.plex_dir }}"
+                           hx-post="/api/settings/validate/path" hx-trigger="blur" hx-target="next .validation-icon">
+                    <span class="validation-icon"></span>
+                </div>
+            </div>
+        </div>
+    </section>
+</div>
+{% endblock %}

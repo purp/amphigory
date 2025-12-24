@@ -37,7 +37,7 @@ from .models import (
     RipResult,
 )
 from .tasks import TaskQueue
-from .websocket import WebSocketServer
+from .websocket import WebSocketServer, WebAppClient
 
 # Configure logging
 logging.basicConfig(
@@ -120,6 +120,7 @@ class AmphigoryDaemon(rumps.App):
         # Components
         self.task_queue: Optional[TaskQueue] = None
         self.ws_server: Optional[WebSocketServer] = None
+        self.webapp_client: Optional[WebAppClient] = None
         self.disc_detector: Optional[DiscDetector] = None
 
         # State
@@ -161,7 +162,7 @@ class AmphigoryDaemon(rumps.App):
         self.open_webapp_item = rumps.MenuItem("Open Webapp...", callback=self.open_webapp)
         self.help_item = rumps.MenuItem("Help & Documentation...", callback=self.open_help)
         self.restart_item = rumps.MenuItem("Restart Daemon", callback=self.restart_daemon)
-        self.preferences_item = rumps.MenuItem("Preferences...", callback=self.open_preferences)
+        self.settings_item = rumps.MenuItem("Settings...", callback=self.open_settings)
         self.quit_item = rumps.MenuItem("Quit", callback=self.quit_app)
 
         self.menu = [
@@ -176,7 +177,7 @@ class AmphigoryDaemon(rumps.App):
             self.pause_item,
             self.pause_now_item,
             self.restart_item,
-            self.preferences_item,
+            self.settings_item,
             self.quit_item,
         ]
 
@@ -209,12 +210,12 @@ class AmphigoryDaemon(rumps.App):
         if self.webapp_config:
             webbrowser.open(self.webapp_config.wiki_url)
 
-    def open_preferences(self, _):
-        """Open preferences in webapp."""
+    def open_settings(self, _):
+        """Open settings in webapp."""
         if self.cold_start_mode:
             self.show_config_dialog()
         elif self.daemon_config:
-            webbrowser.open(f"{self.daemon_config.webapp_url}/config")
+            webbrowser.open(f"{self.daemon_config.webapp_url}/settings")
 
     def restart_daemon(self, _):
         """Restart the daemon."""
@@ -293,7 +294,7 @@ class AmphigoryDaemon(rumps.App):
         self.status_overlays.add(StatusOverlay.NEEDS_CONFIG)
         self._update_icon()
 
-        # Disable menu items except Preferences, Open Webapp, Quit
+        # Disable menu items except Settings, Open Webapp, Quit
         self.disc_item.set_callback(None)
         self.progress_item.set_callback(None)
         self.pause_item.set_callback(None)
@@ -508,6 +509,11 @@ class AmphigoryDaemon(rumps.App):
             )
             logger.info(f"Configuration loaded from {self.daemon_config.webapp_url}")
 
+            # Generate daemon_id if not set
+            if not self.daemon_config.daemon_id:
+                self.daemon_config.daemon_id = generate_daemon_id()
+                logger.info(f"Generated daemon_id: {self.daemon_config.daemon_id}")
+
             # Discover makemkvcon
             self.makemkv_path = discover_makemkvcon(
                 self.webapp_config.makemkv_path
@@ -522,6 +528,15 @@ class AmphigoryDaemon(rumps.App):
                 return False
             logger.info(f"makemkvcon found at {self.makemkv_path}")
 
+            # Update daemon_config with discovered makemkvcon path
+            self.daemon_config.makemkvcon_path = str(self.makemkv_path)
+            self.daemon_config.updated_at = datetime.now()
+
+            # Save updated config locally
+            from .config import save_local_config
+            save_local_config(self.daemon_config, config_file)
+            logger.info("Saved daemon configuration")
+
             # Initialize task queue
             tasks_dir = Path(self.daemon_config.webapp_basedir) / self.webapp_config.tasks_directory.lstrip("/")
             self.task_queue = TaskQueue(tasks_dir)
@@ -529,13 +544,29 @@ class AmphigoryDaemon(rumps.App):
             self.task_queue.recover_crashed_tasks()
             logger.info(f"Task queue initialized at {tasks_dir}")
 
-            # Initialize WebSocket server
+            # Initialize WebSocket server (for browser connections)
             self.ws_server = WebSocketServer(
                 port=self.webapp_config.websocket_port,
                 heartbeat_interval=self.webapp_config.heartbeat_interval,
             )
             await self.ws_server.start()
             logger.info(f"WebSocket server started on port {self.webapp_config.websocket_port}")
+
+            # Connect to webapp's WebSocket endpoint
+            webapp_ws_url = f"{self.daemon_config.webapp_url.replace('http', 'ws')}/ws"
+            self.webapp_client = WebAppClient(webapp_ws_url)
+            try:
+                await self.webapp_client.connect()
+                await self.webapp_client.send_daemon_config(
+                    daemon_id=self.daemon_config.daemon_id,
+                    makemkvcon_path=self.daemon_config.makemkvcon_path,
+                    webapp_basedir=self.daemon_config.webapp_basedir,
+                )
+                logger.info(f"Connected to webapp at {webapp_ws_url}")
+            except Exception as e:
+                logger.warning(f"Could not connect to webapp WebSocket: {e}")
+                self.status_overlays.add(StatusOverlay.DISCONNECTED)
+                self._update_icon()
 
             # Initialize disc detector
             self.disc_detector = DiscDetector(

@@ -10,7 +10,7 @@ from fastapi.responses import HTMLResponse
 
 from amphigory.database import Database
 from amphigory.config import get_config
-from amphigory.api import disc_router, jobs_router
+from amphigory.api import disc_router, jobs_router, settings_router
 from amphigory.websocket import manager
 
 # Paths
@@ -50,17 +50,46 @@ templates = Jinja2Templates(directory=TEMPLATES_DIR)
 # Include API routers
 app.include_router(disc_router)
 app.include_router(jobs_router)
+app.include_router(settings_router)
 
 
 @app.get("/", response_class=HTMLResponse)
 async def index(request: Request):
     """Main dashboard page."""
     return templates.TemplateResponse(
+        request,
         "index.html",
         {
-            "request": request,
             "title": "Amphigory",
             "disc_status": "No disc detected",
+        },
+    )
+
+
+@app.get("/settings", response_class=HTMLResponse)
+async def settings_page(request: Request):
+    """Settings page."""
+    import os
+    config = get_config()
+    data_dir = Path(os.environ.get("AMPHIGORY_DATA", "/data"))
+
+    return templates.TemplateResponse(
+        request,
+        "settings.html",
+        {
+            "active_page": "settings",
+            "config": {
+                "tasks_directory": str(data_dir / "tasks"),
+                "websocket_port": 8765,
+                "wiki_url": "https://gollum/amphigory",
+                "heartbeat_interval": 30,
+                "log_level": "INFO",
+            },
+            "directories": {
+                "ripped_dir": str(config.ripped_dir),
+                "inbox_dir": str(config.inbox_dir),
+                "plex_dir": str(config.plex_dir),
+            },
         },
     )
 
@@ -92,11 +121,43 @@ async def get_daemon_config():
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     """WebSocket endpoint for real-time updates."""
+    import json
+    from datetime import datetime
+    from amphigory.api.settings import _daemons, RegisteredDaemon
+
     await manager.connect(websocket)
+    daemon_id = None
+
     try:
         while True:
-            # Keep connection alive, handle incoming messages
             data = await websocket.receive_text()
-            # Could process commands here if needed
+            try:
+                message = json.loads(data)
+                msg_type = message.get("type")
+
+                if msg_type == "daemon_config":
+                    # Register daemon when it sends its config
+                    daemon_id = message.get("daemon_id")
+                    if daemon_id:
+                        now = datetime.now()
+                        _daemons[daemon_id] = RegisteredDaemon(
+                            daemon_id=daemon_id,
+                            makemkvcon_path=message.get("makemkvcon_path"),
+                            webapp_basedir=message.get("webapp_basedir", ""),
+                            connected_at=now,
+                            last_seen=now,
+                        )
+
+                elif msg_type == "heartbeat" and daemon_id:
+                    # Update last_seen on heartbeat
+                    if daemon_id in _daemons:
+                        _daemons[daemon_id].last_seen = datetime.now()
+
+            except json.JSONDecodeError:
+                pass  # Ignore malformed messages
+
     except WebSocketDisconnect:
+        # Remove daemon on disconnect
+        if daemon_id and daemon_id in _daemons:
+            del _daemons[daemon_id]
         manager.disconnect(websocket)

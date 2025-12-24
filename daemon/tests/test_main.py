@@ -158,7 +158,7 @@ class TestColdStartMode:
         assert daemon.cold_start_mode is True
 
     def test_cold_start_disables_most_menu_items(self):
-        """Cold-start mode disables all menu items except Preferences, Open Webapp, Quit."""
+        """Cold-start mode disables all menu items except Settings, Open Webapp, Quit."""
         from amphigory_daemon.main import AmphigoryDaemon
 
         daemon = AmphigoryDaemon()
@@ -166,7 +166,7 @@ class TestColdStartMode:
         daemon.enter_cold_start_mode()
 
         # These should be enabled (have callbacks)
-        assert daemon.preferences_item.callback is not None
+        assert daemon.settings_item.callback is not None
         assert daemon.open_webapp_item.callback is not None
         assert daemon.quit_item.callback is not None
 
@@ -505,16 +505,16 @@ class TestConfigurationDialog:
             assert "wiki_url" in call_kwargs
             assert WIKI_DOC_ROOT_URL in call_kwargs["wiki_url"]
 
-    def test_preferences_in_cold_start_shows_dialog(self):
-        """Clicking Preferences in cold-start mode shows config dialog."""
+    def test_settings_in_cold_start_shows_dialog(self):
+        """Clicking Settings in cold-start mode shows config dialog."""
         from amphigory_daemon.main import AmphigoryDaemon
 
         daemon = AmphigoryDaemon()
         daemon.enter_cold_start_mode()
 
         with patch.object(daemon, "show_config_dialog") as mock_dialog:
-            # Trigger the preferences callback
-            daemon.open_preferences(None)
+            # Trigger the settings callback
+            daemon.open_settings(None)
 
             mock_dialog.assert_called_once()
 

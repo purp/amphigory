@@ -301,3 +301,108 @@ class TestWebSocketConfigSync:
                 assert "timestamp" in data
         finally:
             await server.stop()
+
+
+class TestWebAppClient:
+    """Tests for WebSocket client connecting to webapp."""
+
+    @pytest.mark.asyncio
+    async def test_client_connects_to_webapp(self):
+        """WebAppClient connects to webapp WebSocket endpoint."""
+        from amphigory_daemon.websocket import WebAppClient
+
+        # Start a mock WebSocket server to simulate webapp
+        received_messages = []
+
+        async def handler(websocket):
+            async for message in websocket:
+                received_messages.append(json.loads(message))
+
+        async with websockets.serve(handler, "localhost", 19850):
+            client = WebAppClient("ws://localhost:19850")
+            await client.connect()
+
+            try:
+                assert client.is_connected()
+            finally:
+                await client.disconnect()
+
+    @pytest.mark.asyncio
+    async def test_client_sends_daemon_config_on_connect(self):
+        """WebAppClient sends daemon_config message on connect."""
+        from amphigory_daemon.websocket import WebAppClient
+
+        received_messages = []
+
+        async def handler(websocket):
+            async for message in websocket:
+                received_messages.append(json.loads(message))
+
+        async with websockets.serve(handler, "localhost", 19851):
+            client = WebAppClient("ws://localhost:19851")
+            await client.connect()
+            await client.send_daemon_config(
+                daemon_id="testuser@testhost",
+                makemkvcon_path="/usr/local/bin/makemkvcon",
+                webapp_basedir="/data",
+            )
+
+            # Give time for message to be received
+            await asyncio.sleep(0.1)
+
+            try:
+                assert len(received_messages) == 1
+                msg = received_messages[0]
+                assert msg["type"] == "daemon_config"
+                assert msg["daemon_id"] == "testuser@testhost"
+                assert msg["makemkvcon_path"] == "/usr/local/bin/makemkvcon"
+            finally:
+                await client.disconnect()
+
+    @pytest.mark.asyncio
+    async def test_client_sends_heartbeat(self):
+        """WebAppClient can send heartbeat messages."""
+        from amphigory_daemon.websocket import WebAppClient
+
+        received_messages = []
+
+        async def handler(websocket):
+            async for message in websocket:
+                received_messages.append(json.loads(message))
+
+        async with websockets.serve(handler, "localhost", 19852):
+            client = WebAppClient("ws://localhost:19852")
+            await client.connect()
+            await client.send_heartbeat()
+
+            await asyncio.sleep(0.1)
+
+            try:
+                assert len(received_messages) == 1
+                assert received_messages[0]["type"] == "heartbeat"
+            finally:
+                await client.disconnect()
+
+    @pytest.mark.asyncio
+    async def test_client_handles_disconnect(self):
+        """WebAppClient handles server disconnect gracefully."""
+        from amphigory_daemon.websocket import WebAppClient
+
+        server_should_close = asyncio.Event()
+
+        async def handler(websocket):
+            await server_should_close.wait()
+            await websocket.close()
+
+        async with websockets.serve(handler, "localhost", 19853):
+            client = WebAppClient("ws://localhost:19853")
+            await client.connect()
+
+            assert client.is_connected()
+
+            # Trigger server close
+            server_should_close.set()
+            await asyncio.sleep(0.2)
+
+            # Client should detect disconnection
+            assert not client.is_connected()
