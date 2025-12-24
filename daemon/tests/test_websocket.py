@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 import websockets
@@ -190,5 +191,113 @@ class TestWebSocketMessages:
                 assert data["type"] == "sync"
                 assert data["disc"]["inserted"] is True
                 assert data["queue_depth"] == 3
+        finally:
+            await server.stop()
+
+
+class TestWebSocketConfigSync:
+    """Tests for daemon/webapp config synchronization."""
+
+    @pytest.mark.asyncio
+    async def test_send_daemon_config(self):
+        """send_daemon_config broadcasts daemon configuration."""
+        from amphigory_daemon.websocket import WebSocketServer
+
+        server = WebSocketServer(port=19854, heartbeat_interval=10)
+        await server.start()
+
+        try:
+            async with websockets.connect("ws://localhost:19854") as ws:
+                await asyncio.sleep(0.1)
+
+                await server.send_daemon_config(
+                    daemon_id="purp@beehive",
+                    makemkvcon_path="/usr/local/bin/makemkvcon",
+                    webapp_basedir="/opt/amphigory",
+                )
+
+                msg = await asyncio.wait_for(ws.recv(), timeout=1.0)
+                data = json.loads(msg)
+
+                assert data["type"] == "daemon_config"
+                assert data["daemon_id"] == "purp@beehive"
+                assert data["makemkvcon_path"] == "/usr/local/bin/makemkvcon"
+                assert data["webapp_basedir"] == "/opt/amphigory"
+        finally:
+            await server.stop()
+
+    @pytest.mark.asyncio
+    async def test_on_config_change_callback(self):
+        """Server calls on_config_change when webapp_config_changed received."""
+        from amphigory_daemon.websocket import WebSocketServer
+
+        callback = AsyncMock()
+        server = WebSocketServer(port=19855, heartbeat_interval=10)
+        server.on_config_change = callback
+        await server.start()
+
+        try:
+            async with websockets.connect("ws://localhost:19855") as ws:
+                await asyncio.sleep(0.1)
+
+                # Send config change message from "webapp"
+                await ws.send(json.dumps({
+                    "type": "webapp_config_changed",
+                }))
+
+                # Give server time to process
+                await asyncio.sleep(0.1)
+
+                callback.assert_called_once()
+        finally:
+            await server.stop()
+
+    @pytest.mark.asyncio
+    async def test_on_config_change_not_called_for_other_messages(self):
+        """on_config_change not called for non-config messages."""
+        from amphigory_daemon.websocket import WebSocketServer
+
+        callback = AsyncMock()
+        server = WebSocketServer(port=19856, heartbeat_interval=10)
+        server.on_config_change = callback
+        await server.start()
+
+        try:
+            async with websockets.connect("ws://localhost:19856") as ws:
+                await asyncio.sleep(0.1)
+
+                # Send a different message type
+                await ws.send(json.dumps({
+                    "type": "some_other_message",
+                }))
+
+                await asyncio.sleep(0.1)
+
+                callback.assert_not_called()
+        finally:
+            await server.stop()
+
+    @pytest.mark.asyncio
+    async def test_send_daemon_config_includes_timestamp(self):
+        """send_daemon_config includes timestamp."""
+        from amphigory_daemon.websocket import WebSocketServer
+
+        server = WebSocketServer(port=19857, heartbeat_interval=10)
+        await server.start()
+
+        try:
+            async with websockets.connect("ws://localhost:19857") as ws:
+                await asyncio.sleep(0.1)
+
+                await server.send_daemon_config(
+                    daemon_id="purp@beehive",
+                    makemkvcon_path="/usr/local/bin/makemkvcon",
+                    webapp_basedir="/opt/amphigory",
+                )
+
+                msg = await asyncio.wait_for(ws.recv(), timeout=1.0)
+                data = json.loads(msg)
+
+                assert "timestamp" in data
         finally:
             await server.stop()

@@ -129,6 +129,9 @@ class DaemonConfig:
     """Local daemon configuration (from daemon.yaml)."""
     webapp_url: str
     webapp_basedir: str
+    daemon_id: Optional[str] = None
+    makemkvcon_path: Optional[str] = None
+    updated_at: Optional[datetime] = None
 
 
 @dataclass

@@ -14,11 +14,11 @@ class ActivityState(Enum):
 
 class StatusOverlay(Enum):
     """Status overlays that can be applied to the icon."""
-    NONE = auto()         # No overlay
-    PAUSED = auto()       # Paused (⏸)
-    DISCONNECTED = auto() # Webapp disconnected (✕)
-    ERROR = auto()        # Error state (⚠)
-    NEEDS_CONFIG = auto() # Needs configuration (❓)
+    NONE = auto()               # No overlay
+    PAUSED = auto()             # Paused (⏸)
+    DISCONNECTED = auto()       # Webapp disconnected OR storage unavailable (✕)
+    ERROR = auto()              # Error state (⚠)
+    NEEDS_CONFIG = auto()       # Needs configuration (❓)
 
 
 # Map activity states to base icon names

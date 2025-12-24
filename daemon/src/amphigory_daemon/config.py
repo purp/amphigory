@@ -18,12 +18,14 @@ def load_local_config(config_file: Path) -> DaemonConfig:
         config_file: Path to daemon.yaml
 
     Returns:
-        DaemonConfig with webapp_url and webapp_basedir
+        DaemonConfig with webapp_url, webapp_basedir, and optional fields
 
     Raises:
         FileNotFoundError: If config file doesn't exist
         ValueError: If required fields are missing
     """
+    from datetime import datetime
+
     if not config_file.exists():
         raise FileNotFoundError(f"Config file not found: {config_file}")
 
@@ -35,10 +37,48 @@ def load_local_config(config_file: Path) -> DaemonConfig:
     if "webapp_basedir" not in data:
         raise ValueError("Missing required field: webapp_basedir")
 
+    # Parse updated_at if present
+    updated_at = None
+    if "updated_at" in data:
+        if isinstance(data["updated_at"], datetime):
+            updated_at = data["updated_at"]
+        elif isinstance(data["updated_at"], str):
+            updated_at = datetime.fromisoformat(data["updated_at"])
+
     return DaemonConfig(
         webapp_url=data["webapp_url"],
         webapp_basedir=data["webapp_basedir"],
+        daemon_id=data.get("daemon_id"),
+        makemkvcon_path=data.get("makemkvcon_path"),
+        updated_at=updated_at,
     )
+
+
+def save_local_config(config: DaemonConfig, config_file: Path) -> None:
+    """
+    Save daemon configuration to local YAML file.
+
+    Args:
+        config: DaemonConfig to save
+        config_file: Path to daemon.yaml
+    """
+    config_file.parent.mkdir(parents=True, exist_ok=True)
+
+    data = {
+        "webapp_url": config.webapp_url,
+        "webapp_basedir": config.webapp_basedir,
+    }
+
+    # Only include optional fields if they have values
+    if config.daemon_id is not None:
+        data["daemon_id"] = config.daemon_id
+    if config.makemkvcon_path is not None:
+        data["makemkvcon_path"] = config.makemkvcon_path
+    if config.updated_at is not None:
+        data["updated_at"] = config.updated_at.isoformat()
+
+    with open(config_file, "w") as f:
+        yaml.dump(data, f, default_flow_style=False)
 
 
 async def fetch_webapp_config(webapp_url: str) -> WebappConfig:

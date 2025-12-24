@@ -13,6 +13,9 @@ from .models import (
     response_to_dict,
 )
 
+# Default recovery directory for when storage is unavailable
+RECOVERY_DIR = Path.home() / ".amphigory" / "recovery"
+
 
 class TaskQueue:
     """
@@ -113,3 +116,43 @@ class TaskQueue:
             if task_file.suffix == ".json":
                 queued_file = self.queued_dir / task_file.name
                 shutil.move(str(task_file), str(queued_file))
+
+
+def save_to_recovery(response: TaskResponse, recovery_dir: Path) -> None:
+    """
+    Save task response to recovery directory when storage is unavailable.
+
+    Args:
+        response: TaskResponse to save
+        recovery_dir: Path to recovery directory
+    """
+    recovery_dir.mkdir(parents=True, exist_ok=True)
+    recovery_file = recovery_dir / f"{response.task_id}.json"
+    with open(recovery_file, "w") as f:
+        json.dump(response_to_dict(response), f, indent=2)
+
+
+def process_recovery(recovery_dir: Path, queue: TaskQueue) -> int:
+    """
+    Move recovered task responses to the queue's complete directory.
+
+    Called when storage becomes available again.
+
+    Args:
+        recovery_dir: Path to recovery directory
+        queue: TaskQueue to move files to
+
+    Returns:
+        Number of files moved
+    """
+    if not recovery_dir.exists():
+        return 0
+
+    moved = 0
+    for recovery_file in recovery_dir.iterdir():
+        if recovery_file.suffix == ".json":
+            complete_file = queue.complete_dir / recovery_file.name
+            shutil.move(str(recovery_file), str(complete_file))
+            moved += 1
+
+    return moved

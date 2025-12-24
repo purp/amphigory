@@ -9,6 +9,65 @@ import pytest
 import yaml
 
 
+class TestDaemonConfigModel:
+    """Tests for DaemonConfig model with new fields."""
+
+    def test_daemon_config_has_daemon_id_field(self):
+        """DaemonConfig has optional daemon_id field."""
+        from amphigory_daemon.models import DaemonConfig
+
+        config = DaemonConfig(
+            webapp_url="http://localhost:8080",
+            webapp_basedir="/opt/amphigory",
+            daemon_id="purp@beehive",
+        )
+        assert config.daemon_id == "purp@beehive"
+
+    def test_daemon_config_daemon_id_optional(self):
+        """DaemonConfig daemon_id defaults to None."""
+        from amphigory_daemon.models import DaemonConfig
+
+        config = DaemonConfig(
+            webapp_url="http://localhost:8080",
+            webapp_basedir="/opt/amphigory",
+        )
+        assert config.daemon_id is None
+
+    def test_daemon_config_has_makemkvcon_path_field(self):
+        """DaemonConfig has optional makemkvcon_path field."""
+        from amphigory_daemon.models import DaemonConfig
+
+        config = DaemonConfig(
+            webapp_url="http://localhost:8080",
+            webapp_basedir="/opt/amphigory",
+            makemkvcon_path="/usr/local/bin/makemkvcon",
+        )
+        assert config.makemkvcon_path == "/usr/local/bin/makemkvcon"
+
+    def test_daemon_config_makemkvcon_path_optional(self):
+        """DaemonConfig makemkvcon_path defaults to None."""
+        from amphigory_daemon.models import DaemonConfig
+
+        config = DaemonConfig(
+            webapp_url="http://localhost:8080",
+            webapp_basedir="/opt/amphigory",
+        )
+        assert config.makemkvcon_path is None
+
+    def test_daemon_config_has_updated_at_field(self):
+        """DaemonConfig has optional updated_at field."""
+        from amphigory_daemon.models import DaemonConfig
+        from datetime import datetime
+
+        now = datetime.now()
+        config = DaemonConfig(
+            webapp_url="http://localhost:8080",
+            webapp_basedir="/opt/amphigory",
+            updated_at=now,
+        )
+        assert config.updated_at == now
+
+
 class TestLoadLocalConfig:
     def test_loads_valid_yaml(self, tmp_path):
         """Load daemon config from valid YAML file."""
@@ -28,6 +87,34 @@ class TestLoadLocalConfig:
         assert isinstance(config, DaemonConfig)
         assert config.webapp_url == "http://localhost:8080"
         assert config.webapp_basedir == "/opt/beehive-docker/amphigory"
+
+    def test_loads_optional_daemon_id(self, tmp_path):
+        """Load daemon config with daemon_id."""
+        from amphigory_daemon.config import load_local_config
+
+        config_file = tmp_path / "daemon.yaml"
+        config_file.write_text(yaml.dump({
+            "webapp_url": "http://localhost:8080",
+            "webapp_basedir": "/opt/amphigory",
+            "daemon_id": "purp@beehive",
+        }))
+
+        config = load_local_config(config_file)
+        assert config.daemon_id == "purp@beehive"
+
+    def test_loads_optional_makemkvcon_path(self, tmp_path):
+        """Load daemon config with makemkvcon_path."""
+        from amphigory_daemon.config import load_local_config
+
+        config_file = tmp_path / "daemon.yaml"
+        config_file.write_text(yaml.dump({
+            "webapp_url": "http://localhost:8080",
+            "webapp_basedir": "/opt/amphigory",
+            "makemkvcon_path": "/usr/local/bin/makemkvcon",
+        }))
+
+        config = load_local_config(config_file)
+        assert config.makemkvcon_path == "/usr/local/bin/makemkvcon"
 
     def test_raises_on_missing_file(self, tmp_path):
         """Raise FileNotFoundError when config file doesn't exist."""
@@ -50,6 +137,84 @@ class TestLoadLocalConfig:
 
         with pytest.raises(ValueError, match="webapp_basedir"):
             load_local_config(config_file)
+
+
+class TestSaveLocalConfig:
+    """Tests for save_local_config function."""
+
+    def test_saves_config_to_file(self, tmp_path):
+        """save_local_config writes config to YAML file."""
+        from amphigory_daemon.config import save_local_config
+        from amphigory_daemon.models import DaemonConfig
+
+        config_file = tmp_path / "daemon.yaml"
+        config = DaemonConfig(
+            webapp_url="http://localhost:8080",
+            webapp_basedir="/opt/amphigory",
+            daemon_id="purp@beehive",
+            makemkvcon_path="/usr/local/bin/makemkvcon",
+        )
+
+        save_local_config(config, config_file)
+
+        assert config_file.exists()
+        saved = yaml.safe_load(config_file.read_text())
+        assert saved["webapp_url"] == "http://localhost:8080"
+        assert saved["webapp_basedir"] == "/opt/amphigory"
+        assert saved["daemon_id"] == "purp@beehive"
+        assert saved["makemkvcon_path"] == "/usr/local/bin/makemkvcon"
+
+    def test_saves_config_creates_parent_dirs(self, tmp_path):
+        """save_local_config creates parent directories if needed."""
+        from amphigory_daemon.config import save_local_config
+        from amphigory_daemon.models import DaemonConfig
+
+        config_file = tmp_path / "nested" / "dir" / "daemon.yaml"
+        config = DaemonConfig(
+            webapp_url="http://localhost:8080",
+            webapp_basedir="/opt/amphigory",
+        )
+
+        save_local_config(config, config_file)
+
+        assert config_file.exists()
+
+    def test_saves_config_includes_updated_at(self, tmp_path):
+        """save_local_config includes updated_at timestamp."""
+        from amphigory_daemon.config import save_local_config
+        from amphigory_daemon.models import DaemonConfig
+        from datetime import datetime
+
+        config_file = tmp_path / "daemon.yaml"
+        now = datetime.now()
+        config = DaemonConfig(
+            webapp_url="http://localhost:8080",
+            webapp_basedir="/opt/amphigory",
+            updated_at=now,
+        )
+
+        save_local_config(config, config_file)
+
+        saved = yaml.safe_load(config_file.read_text())
+        assert "updated_at" in saved
+
+    def test_saves_config_omits_none_values(self, tmp_path):
+        """save_local_config omits fields that are None."""
+        from amphigory_daemon.config import save_local_config
+        from amphigory_daemon.models import DaemonConfig
+
+        config_file = tmp_path / "daemon.yaml"
+        config = DaemonConfig(
+            webapp_url="http://localhost:8080",
+            webapp_basedir="/opt/amphigory",
+            # daemon_id and makemkvcon_path are None
+        )
+
+        save_local_config(config, config_file)
+
+        saved = yaml.safe_load(config_file.read_text())
+        assert "daemon_id" not in saved
+        assert "makemkvcon_path" not in saved
 
 
 class TestFetchWebappConfig:

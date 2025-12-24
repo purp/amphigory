@@ -46,6 +46,12 @@ class TestStatusOverlay:
         from amphigory_daemon.icons import StatusOverlay
         assert hasattr(StatusOverlay, "NEEDS_CONFIG")
 
+    def test_disconnected_overlay_used_for_storage_unavailable(self):
+        """DISCONNECTED overlay is reused for storage unavailable."""
+        from amphigory_daemon.icons import StatusOverlay
+        # DISCONNECTED serves double duty: webapp disconnected OR storage unavailable
+        assert hasattr(StatusOverlay, "DISCONNECTED")
+
 
 class TestGetIconName:
     def test_idle_empty_returns_correct_name(self):

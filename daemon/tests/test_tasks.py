@@ -300,3 +300,147 @@ class TestRecoverCrashedTasks:
         queue.recover_crashed_tasks()  # Should not raise
 
         assert len(list((tmp_path / "in_progress").iterdir())) == 0
+
+
+class TestStorageRecovery:
+    """Tests for recovery directory when storage is unavailable."""
+
+    def test_recovery_dir_constant_exists(self):
+        """Module has RECOVERY_DIR constant."""
+        from amphigory_daemon.tasks import RECOVERY_DIR
+
+        assert RECOVERY_DIR is not None
+        assert "amphigory" in str(RECOVERY_DIR).lower()
+        assert "recovery" in str(RECOVERY_DIR).lower()
+
+    def test_save_to_recovery_writes_file(self, tmp_path):
+        """save_to_recovery writes response to recovery directory."""
+        from amphigory_daemon.tasks import TaskQueue, save_to_recovery
+        from amphigory_daemon.models import (
+            TaskResponse, TaskStatus, RipResult
+        )
+
+        recovery_dir = tmp_path / "recovery"
+        response = TaskResponse(
+            task_id="20251221-143052-001",
+            status=TaskStatus.SUCCESS,
+            started_at=datetime(2025, 12, 21, 14, 30, 55),
+            completed_at=datetime(2025, 12, 21, 14, 45, 23),
+            duration_seconds=868,
+            result=RipResult(
+                output_path="/media/ripped/Movie/Movie.mkv",
+                size_bytes=11397666816,
+            ),
+        )
+
+        save_to_recovery(response, recovery_dir)
+
+        recovery_file = recovery_dir / "20251221-143052-001.json"
+        assert recovery_file.exists()
+
+        data = json.loads(recovery_file.read_text())
+        assert data["task_id"] == "20251221-143052-001"
+
+    def test_save_to_recovery_creates_dir(self, tmp_path):
+        """save_to_recovery creates recovery directory if needed."""
+        from amphigory_daemon.tasks import save_to_recovery
+        from amphigory_daemon.models import (
+            TaskResponse, TaskStatus, RipResult
+        )
+
+        recovery_dir = tmp_path / "nested" / "recovery"
+        response = TaskResponse(
+            task_id="20251221-143052-001",
+            status=TaskStatus.SUCCESS,
+            started_at=datetime(2025, 12, 21, 14, 30, 55),
+            completed_at=datetime(2025, 12, 21, 14, 45, 23),
+            duration_seconds=868,
+            result=RipResult(
+                output_path="/media/ripped/Movie/Movie.mkv",
+                size_bytes=11397666816,
+            ),
+        )
+
+        save_to_recovery(response, recovery_dir)
+
+        assert recovery_dir.exists()
+
+    def test_process_recovery_moves_to_complete(self, tmp_path):
+        """process_recovery moves files from recovery to complete dir."""
+        from amphigory_daemon.tasks import TaskQueue, save_to_recovery, process_recovery
+        from amphigory_daemon.models import (
+            TaskResponse, TaskStatus, RipResult
+        )
+
+        recovery_dir = tmp_path / "recovery"
+        queue = TaskQueue(tmp_path / "tasks")
+        queue.ensure_directories()
+
+        # Create a recovery file
+        response = TaskResponse(
+            task_id="20251221-143052-001",
+            status=TaskStatus.SUCCESS,
+            started_at=datetime(2025, 12, 21, 14, 30, 55),
+            completed_at=datetime(2025, 12, 21, 14, 45, 23),
+            duration_seconds=868,
+            result=RipResult(
+                output_path="/media/ripped/Movie/Movie.mkv",
+                size_bytes=11397666816,
+            ),
+        )
+        save_to_recovery(response, recovery_dir)
+
+        # Process recovery
+        moved = process_recovery(recovery_dir, queue)
+
+        assert moved == 1
+        assert not (recovery_dir / "20251221-143052-001.json").exists()
+        assert (queue.complete_dir / "20251221-143052-001.json").exists()
+
+    def test_process_recovery_handles_empty_dir(self, tmp_path):
+        """process_recovery handles empty or nonexistent recovery dir."""
+        from amphigory_daemon.tasks import TaskQueue, process_recovery
+
+        recovery_dir = tmp_path / "recovery"
+        queue = TaskQueue(tmp_path / "tasks")
+        queue.ensure_directories()
+
+        # Non-existent recovery dir
+        moved = process_recovery(recovery_dir, queue)
+        assert moved == 0
+
+        # Empty recovery dir
+        recovery_dir.mkdir()
+        moved = process_recovery(recovery_dir, queue)
+        assert moved == 0
+
+    def test_process_recovery_handles_multiple_files(self, tmp_path):
+        """process_recovery moves all files from recovery."""
+        from amphigory_daemon.tasks import TaskQueue, save_to_recovery, process_recovery
+        from amphigory_daemon.models import (
+            TaskResponse, TaskStatus, RipResult
+        )
+
+        recovery_dir = tmp_path / "recovery"
+        queue = TaskQueue(tmp_path / "tasks")
+        queue.ensure_directories()
+
+        # Create multiple recovery files
+        for i in range(3):
+            response = TaskResponse(
+                task_id=f"20251221-14305{i}-001",
+                status=TaskStatus.SUCCESS,
+                started_at=datetime(2025, 12, 21, 14, 30, 55),
+                completed_at=datetime(2025, 12, 21, 14, 45, 23),
+                duration_seconds=868,
+                result=RipResult(
+                    output_path=f"/media/ripped/Movie{i}/Movie.mkv",
+                    size_bytes=11397666816,
+                ),
+            )
+            save_to_recovery(response, recovery_dir)
+
+        moved = process_recovery(recovery_dir, queue)
+
+        assert moved == 3
+        assert len(list(queue.complete_dir.iterdir())) == 3

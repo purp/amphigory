@@ -10,6 +10,93 @@ DEFAULT_WEBAPP_URL = "http://localhost:6199"
 DEFAULT_WEBAPP_BASEDIR = "/opt/amphigory"
 
 
+class TestDaemonIdGeneration:
+    """Tests for daemon ID generation."""
+
+    def test_generate_daemon_id_returns_string(self):
+        """generate_daemon_id returns a string."""
+        from amphigory_daemon.main import generate_daemon_id
+
+        result = generate_daemon_id()
+
+        assert isinstance(result, str)
+
+    def test_generate_daemon_id_contains_username(self):
+        """Daemon ID contains the username."""
+        from amphigory_daemon.main import generate_daemon_id
+
+        with patch.dict("os.environ", {"USER": "testuser"}):
+            with patch("socket.gethostname", return_value="testhost"):
+                with patch("sys.stdin") as mock_stdin:
+                    mock_stdin.isatty.return_value = False
+                    result = generate_daemon_id()
+
+        assert "testuser" in result
+
+    def test_generate_daemon_id_contains_hostname(self):
+        """Daemon ID contains the short hostname."""
+        from amphigory_daemon.main import generate_daemon_id
+
+        with patch.dict("os.environ", {"USER": "testuser"}):
+            with patch("socket.gethostname", return_value="testhost.example.com"):
+                with patch("sys.stdin") as mock_stdin:
+                    mock_stdin.isatty.return_value = False
+                    result = generate_daemon_id()
+
+        assert "testhost" in result
+        assert "example.com" not in result
+
+    def test_generate_daemon_id_format(self):
+        """Daemon ID follows username@hostname format."""
+        from amphigory_daemon.main import generate_daemon_id
+
+        with patch.dict("os.environ", {"USER": "purp"}):
+            with patch("socket.gethostname", return_value="beehive.meyer.home"):
+                with patch("sys.stdin") as mock_stdin:
+                    mock_stdin.isatty.return_value = False
+                    result = generate_daemon_id()
+
+        assert result == "purp@beehive"
+
+    def test_generate_daemon_id_adds_dev_suffix_for_tty(self):
+        """Daemon ID has :dev suffix when running from TTY."""
+        from amphigory_daemon.main import generate_daemon_id
+
+        with patch.dict("os.environ", {"USER": "purp"}):
+            with patch("socket.gethostname", return_value="beehive"):
+                with patch("sys.stdin") as mock_stdin:
+                    mock_stdin.isatty.return_value = True
+                    result = generate_daemon_id()
+
+        assert result == "purp@beehive:dev"
+
+    def test_generate_daemon_id_no_dev_suffix_for_non_tty(self):
+        """Daemon ID has no :dev suffix when not running from TTY."""
+        from amphigory_daemon.main import generate_daemon_id
+
+        with patch.dict("os.environ", {"USER": "purp"}):
+            with patch("socket.gethostname", return_value="beehive"):
+                with patch("sys.stdin") as mock_stdin:
+                    mock_stdin.isatty.return_value = False
+                    result = generate_daemon_id()
+
+        assert result == "purp@beehive"
+        assert ":dev" not in result
+
+    def test_generate_daemon_id_handles_missing_user(self):
+        """Daemon ID handles missing USER env var."""
+        from amphigory_daemon.main import generate_daemon_id
+
+        with patch.dict("os.environ", {}, clear=True):
+            with patch("os.environ.get", return_value="unknown"):
+                with patch("socket.gethostname", return_value="testhost"):
+                    with patch("sys.stdin") as mock_stdin:
+                        mock_stdin.isatty.return_value = False
+                        result = generate_daemon_id()
+
+        assert "@" in result
+
+
 class TestColdStartMode:
     """Tests for cold-start mode and auto-configuration."""
 

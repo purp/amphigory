@@ -3,7 +3,7 @@
 import asyncio
 import json
 from datetime import datetime
-from typing import Any, Optional, Set
+from typing import Any, Callable, Optional, Set
 
 import websockets
 from websockets.server import WebSocketServerProtocol, serve
@@ -29,6 +29,8 @@ class WebSocketServer:
         self.heartbeat_interval = heartbeat_interval
         self.clients: Set[WebSocketServerProtocol] = set()
         self._server = None
+        # Callback for when webapp config changes
+        self.on_config_change: Optional[Callable[[], Any]] = None
 
     async def start(self) -> None:
         """Start WebSocket server."""
@@ -73,9 +75,13 @@ class WebSocketServer:
         """Handle an incoming message from webapp."""
         msg_type = data.get("type")
 
-        if msg_type == "config_updated":
-            # Signal to refetch config - handled by main app
-            pass
+        if msg_type == "webapp_config_changed":
+            # Signal to refetch config from webapp
+            if self.on_config_change is not None:
+                result = self.on_config_change()
+                # Handle both sync and async callbacks
+                if asyncio.iscoroutine(result):
+                    await result
 
     async def broadcast(self, message: dict[str, Any]) -> None:
         """
@@ -196,4 +202,28 @@ class WebSocketServer:
             "type": "status",
             "task_id": task_id,
             "status": status,
+        })
+
+    async def send_daemon_config(
+        self,
+        daemon_id: str,
+        makemkvcon_path: Optional[str],
+        webapp_basedir: str,
+    ) -> None:
+        """
+        Send daemon configuration to webapp.
+
+        Called on connection and when daemon config changes.
+
+        Args:
+            daemon_id: Unique daemon identifier (e.g., "purp@beehive")
+            makemkvcon_path: Path to makemkvcon binary
+            webapp_basedir: Local path to webapp data directory
+        """
+        await self.broadcast({
+            "type": "daemon_config",
+            "timestamp": datetime.now().isoformat(),
+            "daemon_id": daemon_id,
+            "makemkvcon_path": makemkvcon_path,
+            "webapp_basedir": webapp_basedir,
         })

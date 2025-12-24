@@ -57,6 +57,32 @@ DEFAULT_WEBAPP_BASEDIR = "/opt/amphigory"
 WIKI_DOC_ROOT_URL = "https://gollum/amphigory"
 
 
+def generate_daemon_id() -> str:
+    """
+    Generate a unique daemon ID based on username and hostname.
+
+    Format: username@hostname (e.g., purp@beehive)
+    Adds :dev suffix when running from an interactive terminal (TTY),
+    which indicates a development/debugging session.
+
+    Returns:
+        Daemon ID string
+    """
+    import os
+    import socket
+    import sys
+
+    username = os.environ.get("USER", "unknown")
+    # Use short hostname (before first dot)
+    hostname = socket.gethostname().split(".")[0]
+    base_id = f"{username}@{hostname}"
+
+    # Add :dev suffix for interactive terminal sessions
+    if sys.stdin.isatty():
+        return f"{base_id}:dev"
+    return base_id
+
+
 class PauseMode(Enum):
     """Pause mode for the daemon."""
     NONE = auto()
