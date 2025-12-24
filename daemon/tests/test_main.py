@@ -913,3 +913,36 @@ class TestConfigChangeHandling:
             # Verify config was updated
             assert daemon.webapp_config.heartbeat_interval == 60
             assert daemon.webapp_config.log_level == "DEBUG"
+
+
+class TestStorageHandling:
+    """Tests for storage unavailable handling."""
+
+    def test_is_storage_available_returns_true_when_accessible(self, tmp_path):
+        """is_storage_available returns True when storage dir exists."""
+        from amphigory_daemon.main import AmphigoryDaemon
+
+        daemon = AmphigoryDaemon()
+        daemon.daemon_config = MagicMock()
+        daemon.daemon_config.webapp_basedir = str(tmp_path)
+
+        assert daemon.is_storage_available() is True
+
+    def test_is_storage_available_returns_false_when_missing(self):
+        """is_storage_available returns False when storage dir doesn't exist."""
+        from amphigory_daemon.main import AmphigoryDaemon
+
+        daemon = AmphigoryDaemon()
+        daemon.daemon_config = MagicMock()
+        daemon.daemon_config.webapp_basedir = "/nonexistent/path/that/does/not/exist"
+
+        assert daemon.is_storage_available() is False
+
+    def test_is_storage_available_returns_false_when_config_missing(self):
+        """is_storage_available returns False when daemon_config is None."""
+        from amphigory_daemon.main import AmphigoryDaemon
+
+        daemon = AmphigoryDaemon()
+        daemon.daemon_config = None
+
+        assert daemon.is_storage_available() is False

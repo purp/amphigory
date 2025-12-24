@@ -252,6 +252,17 @@ class AmphigoryDaemon(rumps.App):
         except ConnectionError as e:
             logger.warning(f"Failed to refresh webapp config: {e}")
 
+    def is_storage_available(self) -> bool:
+        """
+        Check if webapp storage is available.
+
+        Returns:
+            True if storage directory exists and is accessible
+        """
+        if not self.daemon_config:
+            return False
+        return Path(self.daemon_config.webapp_basedir).exists()
+
     def _update_icon(self) -> None:
         """Update the menu bar icon based on current state."""
         icon_name = get_icon_name(self.activity_state, self.status_overlays or None)
@@ -267,6 +278,10 @@ class AmphigoryDaemon(rumps.App):
             self.status_overlays.add(StatusOverlay.PAUSED)
 
         if self.ws_server and not self.ws_server.has_clients():
+            self.status_overlays.add(StatusOverlay.DISCONNECTED)
+
+        # Also show disconnected if storage is unavailable
+        if not self.is_storage_available():
             self.status_overlays.add(StatusOverlay.DISCONNECTED)
 
         self._update_icon()
