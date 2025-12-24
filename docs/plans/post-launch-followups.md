@@ -14,6 +14,8 @@ Items deferred to focus on getting to a fully functional system first.
 
 ## Deployment / CI/CD
 
+- [ ] Integrate into /opt/beehive-docker/docker-compose.yaml
+- [ ] Optimize amphigory image build
 - [ ] Get container image registry working properly
 - [ ] Build container image and push to registry
 - [ ] Auto-restart container when new image is pushed to registry (watchtower or similar)
