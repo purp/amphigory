@@ -9,6 +9,8 @@ Items deferred to focus on getting to a fully functional system first.
 ## Logging
 
 - [ ] Webapp WebSocket logging not showing daemon_id on connect/disconnect (need to verify implementation)
+- [ ] Log logging level on webapp and daemon startup
+- [ ] Log logging level changes when config is updated
 
 ## Packaging
 

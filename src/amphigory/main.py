@@ -70,6 +70,16 @@ async def index(request: Request):
     )
 
 
+@app.get("/disc", response_class=HTMLResponse)
+async def disc_review_page(request: Request):
+    """Disc review page for track selection."""
+    return templates.TemplateResponse(
+        request,
+        "disc.html",
+        {"active_page": "disc"},
+    )
+
+
 @app.get("/settings", response_class=HTMLResponse)
 async def settings_page(request: Request):
     """Settings page."""

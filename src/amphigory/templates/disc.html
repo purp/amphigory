@@ -1,0 +1,289 @@
+{% extends "base.html" %}
+
+{% block title %}Disc Review - Amphigory{% endblock %}
+
+{% block content %}
+<div class="disc-review">
+    <header class="page-header">
+        <h1>Disc Review</h1>
+        <p class="subtitle" id="disc-status-text">Loading...</p>
+    </header>
+
+    <section class="scan-section card" id="scan-section">
+        <div id="scan-status">
+            <p class="text-muted">Checking for disc...</p>
+        </div>
+    </section>
+
+    <section class="tracks-section card" id="tracks-section" style="display: none;">
+        <div class="tracks-header">
+            <h2>Tracks</h2>
+            <div class="track-actions">
+                <button type="button" class="btn btn-small" onclick="selectAll()">Select All</button>
+                <button type="button" class="btn btn-small" onclick="selectNone()">Select None</button>
+                <button type="button" class="btn btn-small" onclick="selectMain()">Select Main Feature</button>
+            </div>
+        </div>
+
+        <form id="rip-form" onsubmit="submitRipTasks(event)">
+            <table class="tracks-table">
+                <thead>
+                    <tr>
+                        <th class="col-select"><input type="checkbox" id="select-all-checkbox" onchange="toggleAll(this)"></th>
+                        <th class="col-track">#</th>
+                        <th class="col-duration">Duration</th>
+                        <th class="col-size">Size</th>
+                        <th class="col-resolution">Resolution</th>
+                        <th class="col-type">Type</th>
+                        <th class="col-audio">Audio</th>
+                        <th class="col-subs">Subs</th>
+                    </tr>
+                </thead>
+                <tbody id="tracks-body">
+                    <!-- Tracks populated via JavaScript -->
+                </tbody>
+            </table>
+
+            <div class="rip-options">
+                <div class="option-row">
+                    <label for="output-dir">Output Directory:</label>
+                    <input type="text" id="output-dir" name="output_dir" value="/media/ripped" class="setting-input">
+                </div>
+            </div>
+
+            <div class="form-actions">
+                <button type="submit" class="btn btn-primary" id="rip-button" disabled>
+                    Rip Selected Tracks
+                </button>
+                <span class="selected-count" id="selected-count">0 tracks selected</span>
+            </div>
+        </form>
+    </section>
+</div>
+
+<script>
+let scanResult = null;
+
+// Check disc status and show scan button
+async function checkDiscStatus() {
+    try {
+        const response = await fetch('/api/disc/status');
+        const data = await response.json();
+
+        const statusText = document.getElementById('disc-status-text');
+        const scanSection = document.getElementById('scan-section');
+
+        if (data.has_disc) {
+            statusText.textContent = `Disc: ${data.volume_name || 'Unknown'} (${data.device_path})`;
+            scanSection.innerHTML = `
+                <button class="btn btn-primary" onclick="startScan()">
+                    Scan Disc
+                </button>
+                <span class="text-muted" style="margin-left: 1rem;">Click to analyze disc contents</span>
+            `;
+        } else {
+            statusText.textContent = 'No disc detected';
+            scanSection.innerHTML = `
+                <p class="text-muted">Insert a disc and click refresh to scan.</p>
+                <button class="btn btn-secondary" onclick="checkDiscStatus()">Refresh</button>
+            `;
+        }
+    } catch (error) {
+        console.error('Error checking disc status:', error);
+        document.getElementById('disc-status-text').textContent = 'Error checking disc status';
+    }
+}
+
+// Start a scan
+async function startScan() {
+    const scanSection = document.getElementById('scan-section');
+    scanSection.innerHTML = `
+        <div class="scanning">
+            <div class="spinner"></div>
+            <p>Scanning disc...</p>
+        </div>
+    `;
+
+    try {
+        const response = await fetch('/api/disc/scan', { method: 'POST' });
+        const data = await response.json();
+
+        // Poll for results
+        pollForScanResult(data.task_id);
+    } catch (error) {
+        console.error('Error starting scan:', error);
+        scanSection.innerHTML = `
+            <p class="error">Error starting scan. Please try again.</p>
+            <button class="btn btn-secondary" onclick="checkDiscStatus()">Retry</button>
+        `;
+    }
+}
+
+// Poll for scan result
+async function pollForScanResult(taskId) {
+    const maxAttempts = 60;
+    let attempts = 0;
+
+    const poll = async () => {
+        try {
+            const response = await fetch('/api/disc/scan-result');
+            if (response.ok) {
+                scanResult = await response.json();
+                displayScanResult(scanResult);
+                return;
+            }
+        } catch (error) {
+            console.log('Waiting for scan result...');
+        }
+
+        attempts++;
+        if (attempts < maxAttempts) {
+            setTimeout(poll, 2000);
+        } else {
+            document.getElementById('scan-section').innerHTML = `
+                <p class="error">Scan timed out. Please try again.</p>
+                <button class="btn btn-secondary" onclick="checkDiscStatus()">Retry</button>
+            `;
+        }
+    };
+
+    poll();
+}
+
+// Display scan results
+function displayScanResult(result) {
+    document.getElementById('disc-status-text').textContent = `${result.disc_name} (${result.disc_type})`;
+
+    const scanSection = document.getElementById('scan-section');
+    scanSection.innerHTML = `
+        <p class="scan-complete">Scan complete! Found ${result.tracks.length} tracks.</p>
+        <button class="btn btn-secondary" onclick="startScan()">Rescan</button>
+    `;
+
+    const tracksSection = document.getElementById('tracks-section');
+    tracksSection.style.display = 'block';
+
+    const tbody = document.getElementById('tracks-body');
+    tbody.innerHTML = result.tracks.map((track, index) => `
+        <tr class="track-row ${track.classification === 'main_feature' ? 'main-feature' : ''}">
+            <td class="col-select">
+                <input type="checkbox" name="tracks" value="${track.number || index}"
+                       onchange="updateSelectedCount()" data-classification="${track.classification || 'unknown'}">
+            </td>
+            <td class="col-track">${track.number || index}</td>
+            <td class="col-duration">${track.duration || '-'}</td>
+            <td class="col-size">${formatSize(track.size_bytes)}</td>
+            <td class="col-resolution">${track.resolution || '-'}</td>
+            <td class="col-type">
+                <span class="track-type type-${track.classification || 'unknown'}">
+                    ${formatClassification(track.classification)}
+                </span>
+            </td>
+            <td class="col-audio">${track.audio_tracks || track.audio_streams?.length || 0}</td>
+            <td class="col-subs">${track.subtitle_tracks || track.subtitle_streams?.length || 0}</td>
+        </tr>
+    `).join('');
+
+    updateSelectedCount();
+}
+
+function formatSize(bytes) {
+    if (!bytes) return '-';
+    const gb = bytes / (1024 * 1024 * 1024);
+    return gb.toFixed(1) + ' GB';
+}
+
+function formatClassification(classification) {
+    const labels = {
+        'main_feature': 'Main Feature',
+        'extra': 'Extra',
+        'trailer': 'Trailer',
+        'menu': 'Menu',
+        'unknown': 'Unknown',
+    };
+    return labels[classification] || classification || 'Unknown';
+}
+
+function selectAll() {
+    document.querySelectorAll('input[name="tracks"]').forEach(cb => cb.checked = true);
+    updateSelectedCount();
+}
+
+function selectNone() {
+    document.querySelectorAll('input[name="tracks"]').forEach(cb => cb.checked = false);
+    updateSelectedCount();
+}
+
+function selectMain() {
+    document.querySelectorAll('input[name="tracks"]').forEach(cb => {
+        cb.checked = cb.dataset.classification === 'main_feature';
+    });
+    updateSelectedCount();
+}
+
+function toggleAll(masterCheckbox) {
+    document.querySelectorAll('input[name="tracks"]').forEach(cb => cb.checked = masterCheckbox.checked);
+    updateSelectedCount();
+}
+
+function updateSelectedCount() {
+    const selected = document.querySelectorAll('input[name="tracks"]:checked').length;
+    document.getElementById('selected-count').textContent = `${selected} track${selected !== 1 ? 's' : ''} selected`;
+    document.getElementById('rip-button').disabled = selected === 0;
+
+    // Update master checkbox
+    const total = document.querySelectorAll('input[name="tracks"]').length;
+    const masterCheckbox = document.getElementById('select-all-checkbox');
+    masterCheckbox.checked = selected === total && total > 0;
+    masterCheckbox.indeterminate = selected > 0 && selected < total;
+}
+
+async function submitRipTasks(event) {
+    event.preventDefault();
+
+    const selectedTracks = Array.from(document.querySelectorAll('input[name="tracks"]:checked'))
+        .map(cb => parseInt(cb.value));
+    const outputDir = document.getElementById('output-dir').value;
+
+    if (selectedTracks.length === 0) {
+        alert('Please select at least one track to rip.');
+        return;
+    }
+
+    const ripButton = document.getElementById('rip-button');
+    ripButton.disabled = true;
+    ripButton.textContent = 'Creating tasks...';
+
+    try {
+        for (const trackNumber of selectedTracks) {
+            const track = scanResult.tracks.find(t => (t.number || scanResult.tracks.indexOf(t)) === trackNumber);
+            await fetch('/api/tasks/rip', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    track_number: trackNumber,
+                    output_filename: `${scanResult.disc_name}_track${trackNumber}.mkv`,
+                    output_directory: outputDir,
+                }),
+            });
+        }
+
+        // Redirect to queue page
+        window.location.href = '/queue';
+    } catch (error) {
+        console.error('Error creating rip tasks:', error);
+        alert('Error creating rip tasks. Please try again.');
+        ripButton.disabled = false;
+        ripButton.textContent = 'Rip Selected Tracks';
+    }
+}
+
+// Initialize on page load
+document.addEventListener('DOMContentLoaded', checkDiscStatus);
+
+// Listen for WebSocket disc events
+document.addEventListener('amphigory:disc_event', (e) => {
+    checkDiscStatus();
+});
+</script>
+{% endblock %}
