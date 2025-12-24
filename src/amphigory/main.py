@@ -19,6 +19,35 @@ logging.getLogger("uvicorn").propagate = False
 logging.getLogger("uvicorn.access").propagate = False
 logging.getLogger("uvicorn.error").propagate = False
 
+
+class QuietAccessFilter(logging.Filter):
+    """Filter out noisy polling endpoints from access logs.
+
+    These endpoints are called frequently by the browser and clutter logs.
+    They're still logged at DEBUG level if needed.
+    """
+    QUIET_PATHS = (
+        "/api/jobs/active",
+        "/api/disc/status-html",
+        "/api/settings/daemons",
+        "/ws",
+        "/static/",
+    )
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        message = record.getMessage()
+        for path in self.QUIET_PATHS:
+            if path in message:
+                # Log at DEBUG instead of filtering completely
+                record.levelno = logging.DEBUG
+                record.levelname = "DEBUG"
+                return True
+        return True
+
+
+# Apply filter to uvicorn access logger
+logging.getLogger("uvicorn.access").addFilter(QuietAccessFilter())
+
 logger = logging.getLogger(__name__)
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
