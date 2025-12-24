@@ -1,10 +1,23 @@
 """FastAPI application entry point."""
 
 import logging
+import sys
 from pathlib import Path
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+
+# Configure logging to prevent duplicates
+# Uvicorn sets up its own handlers, so we disable propagation
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(levelname)s:     %(message)s",
+    handlers=[logging.StreamHandler(sys.stdout)],
+)
+# Prevent uvicorn loggers from propagating to root (causes duplicates)
+logging.getLogger("uvicorn").propagate = False
+logging.getLogger("uvicorn.access").propagate = False
+logging.getLogger("uvicorn.error").propagate = False
 
 logger = logging.getLogger(__name__)
 from fastapi.staticfiles import StaticFiles
