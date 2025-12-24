@@ -99,5 +99,23 @@
             </div>
         </div>
     </section>
+
+    <div class="version-info" id="version-info">
+        <span class="text-muted">Loading version...</span>
+    </div>
 </div>
+
+<script>
+    document.addEventListener('DOMContentLoaded', async () => {
+        try {
+            const response = await fetch('/version');
+            const data = await response.json();
+            const versionEl = document.getElementById('version-info');
+            const sha = data.git_sha === 'dev' ? 'dev' : data.git_sha.substring(0, 7);
+            versionEl.innerHTML = `<span class="text-muted">Version ${data.version} (${sha})</span>`;
+        } catch (error) {
+            console.error('Failed to fetch version:', error);
+        }
+    });
+</script>
 {% endblock %}

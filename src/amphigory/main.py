@@ -124,6 +124,19 @@ async def health_check():
     return {"status": "healthy", "version": "0.1.0"}
 
 
+@app.get("/version")
+async def get_version():
+    """Return version info including git SHA.
+
+    The GIT_SHA is set at build time via Docker build arg.
+    """
+    import os
+    return {
+        "version": "0.1.0",
+        "git_sha": os.environ.get("GIT_SHA", "dev"),
+    }
+
+
 @app.get("/config.json")
 async def get_daemon_config():
     """Return configuration for the macOS daemon.

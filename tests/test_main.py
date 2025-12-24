@@ -59,3 +59,30 @@ class TestConfigEndpoint:
         assert "makemkv_path" in data
         # Can be string or None
         assert data["makemkv_path"] is None or isinstance(data["makemkv_path"], str)
+
+
+class TestVersionEndpoint:
+    """Tests for /version endpoint."""
+
+    def test_version_endpoint_exists(self, test_client):
+        """GET /version returns 200."""
+        response = test_client.get("/version")
+        assert response.status_code == 200
+
+    def test_version_endpoint_returns_json(self, test_client):
+        """GET /version returns JSON."""
+        response = test_client.get("/version")
+        assert response.headers["content-type"] == "application/json"
+
+    def test_version_contains_git_sha(self, test_client):
+        """Version includes git_sha field."""
+        response = test_client.get("/version")
+        data = response.json()
+        assert "git_sha" in data
+
+    def test_version_contains_version(self, test_client):
+        """Version includes version field."""
+        response = test_client.get("/version")
+        data = response.json()
+        assert "version" in data
+        assert data["version"] == "0.1.0"

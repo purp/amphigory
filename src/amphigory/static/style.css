@@ -707,3 +707,10 @@ body {
     padding: 2rem;
     color: var(--text-muted);
 }
+
+/* Version info */
+.version-info {
+    text-align: center;
+    padding: 1.5rem 0 0.5rem;
+    font-size: 0.8rem;
+}

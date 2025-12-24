@@ -1,5 +1,9 @@
 FROM debian:bookworm-slim
 
+# Build arg for git SHA (set at build time)
+ARG GIT_SHA=dev
+ENV GIT_SHA=${GIT_SHA}
+
 # Install base dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
