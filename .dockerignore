@@ -1,17 +1,36 @@
-.git
+# Git
+.git/
 .gitignore
-__pycache__
+
+# Python
+.venv/
+__pycache__/
 *.pyc
 *.pyo
-.pytest_cache
-.ruff_cache
-.coverage
-htmlcov
-*.egg-info
-dist
-build
-.env
-.venv
-venv
-docs/plans
-tests
+*.egg-info/
+.pytest_cache/
+
+# Tests and docs
+tests/
+docs/
+*.md
+
+# Build artifacts
+build/
+dist/
+*.iconset/
+
+# Daemon (separate component)
+daemon/
+
+# IDE and editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Claude Code
+.claude/
+
+# Local data
+data/

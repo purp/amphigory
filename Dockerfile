@@ -1,15 +1,12 @@
-FROM debian:bookworm-slim
+# syntax=docker/dockerfile:1
+FROM python:3.11-slim-bookworm
 
 # Build arg for git SHA (set at build time)
 ARG GIT_SHA=dev
 ENV GIT_SHA=${GIT_SHA}
 
-# Install base dependencies
+# Install HandBrakeCLI (only non-Python dependency)
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl \
-    python3.11 \
-    python3-pip \
-    python3.11-venv \
     handbrake-cli \
     && rm -rf /var/lib/apt/lists/*
 
@@ -19,13 +16,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 WORKDIR /app
 
-# Create and activate virtual environment
-RUN python3.11 -m venv /app/venv
-ENV PATH="/app/venv/bin:$PATH"
-
-# Install Python dependencies
+# Install Python dependencies (with BuildKit cache)
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN --mount=type=cache,target=/root/.cache/pip \
+    pip install -r requirements.txt
 
 # Copy application code
 COPY src/ ./src/
