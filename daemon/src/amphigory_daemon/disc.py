@@ -37,6 +37,7 @@ class DiscDetector(NSObject):
         self._on_insert = None
         self._on_eject = None
         self._running = False
+        self._current_volume_path = None
         return self
 
     @classmethod
@@ -136,6 +137,7 @@ class DiscDetector(NSObject):
             # Check if device is optical (rdisk with specific characteristics)
             if self._is_optical_device(device):
                 logger.info(f"Optical disc inserted: {volume_name} at {device}")
+                self._current_volume_path = path
                 if self._on_insert:
                     self._on_insert(device, volume_name)
 
@@ -144,26 +146,25 @@ class DiscDetector(NSObject):
 
     def handleUnmount_(self, notification) -> None:
         """Handle unmount notification from macOS."""
+        logger.info(f"handleUnmount_ called with notification: {notification}")
         try:
             user_info = notification.userInfo()
+            logger.info(f"Unmount notification userInfo: {user_info}")
             if not user_info:
                 return
-
             path = user_info.get("NSWorkspaceVolumeURLKey")
             if path:
                 path = str(path.path())
             else:
                 path = user_info.get("NSDevicePath", "")
-
             if not path.startswith("/Volumes/"):
                 return
-
-            device = self._get_device_for_volume(path)
-            if device and self._is_optical_device(device):
-                logger.info(f"Optical disc ejected from {device}")
+            # Check if this is our tracked optical disc
+            if path == self._current_volume_path:
+                logger.info(f"Optical disc ejected from {path}")
+                self._current_volume_path = None
                 if self._on_eject:
-                    self._on_eject(device)
-
+                    self._on_eject(path)
         except Exception as e:
             logger.error(f"Error handling unmount notification: {e}")
 
