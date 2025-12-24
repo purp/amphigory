@@ -41,6 +41,35 @@ body {
     text-decoration: none;
 }
 
+.nav-brand {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+/* Navbar daemon status indicator */
+#daemon-status.daemon-status {
+    font-size: 0.75rem;
+    padding: 0.25rem 0.75rem;
+    border-radius: 12px;
+    font-weight: 500;
+}
+
+#daemon-status.status-connected {
+    background: #dcfce7;
+    color: #166534;
+}
+
+#daemon-status.status-disconnected {
+    background: #fef2f2;
+    color: #991b1b;
+}
+
+#daemon-status.status-error {
+    background: #fef3c7;
+    color: #92400e;
+}
+
 .nav-links a {
     margin-left: 2rem;
     color: var(--text-muted);
@@ -90,6 +119,17 @@ body {
 
 .status-message {
     color: var(--text-muted);
+}
+
+.status-message.disc-inserted {
+    color: var(--success);
+    font-weight: 500;
+}
+
+.status-detail {
+    font-size: 0.875rem;
+    color: var(--text-muted);
+    margin-top: 0.25rem;
 }
 
 .progress-bar {
