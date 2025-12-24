@@ -6,15 +6,15 @@
 <div class="dashboard">
     <section class="disc-status card">
         <h2>Disc Status</h2>
-        <div id="disc-info" hx-get="/api/disc/status-html" hx-trigger="every 5s" hx-swap="innerHTML">
-            <p class="status-message">{{ disc_status }}</p>
+        <div id="disc-info" hx-get="/api/disc/status-html" hx-trigger="load, every 5s" hx-swap="innerHTML">
+            <p class="status-message">Loading...</p>
         </div>
     </section>
 
     <section class="current-jobs card">
         <h2>Active Jobs</h2>
-        <div id="active-jobs" hx-get="/api/jobs/active" hx-trigger="every 2s" hx-swap="innerHTML">
-            <p class="no-jobs">No active jobs</p>
+        <div id="active-jobs" hx-get="/api/jobs/active" hx-trigger="load, every 2s" hx-swap="innerHTML">
+            <p class="no-jobs">Loading...</p>
         </div>
     </section>
 
