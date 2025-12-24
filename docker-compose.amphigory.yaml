@@ -5,8 +5,6 @@
 # Option 1: Copy service definition to /opt/beehive-docker/docker-compose.yaml
 # Option 2: Run standalone: docker-compose -f docker-compose.amphigory.yaml up -d
 
-version: '3.8'
-
 services:
   amphigory:
     build:
