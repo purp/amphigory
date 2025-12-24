@@ -102,10 +102,11 @@ async def scan_current_disc(request: Request) -> ScanTaskResponse:
 
 
 @router.get("/scan-result")
-async def get_scan_result(request: Request) -> ScanResultResponse:
-    """Get the most recent scan result.
+async def get_scan_result(request: Request, task_id: Optional[str] = None) -> ScanResultResponse:
+    """Get scan result.
 
-    Reads from complete/ directory for the latest scan task result.
+    If task_id is provided, returns that specific task's result (or 404 if not complete).
+    If task_id is not provided, returns the most recent scan result.
     """
     tasks_dir = get_tasks_dir()
     complete_dir = tasks_dir / "complete"
@@ -113,7 +114,35 @@ async def get_scan_result(request: Request) -> ScanResultResponse:
     if not complete_dir.exists():
         raise HTTPException(status_code=404, detail="No scan results found")
 
-    # Find the most recent scan result
+    # If task_id provided, look for that specific task
+    if task_id:
+        # Prevent path traversal attacks
+        if "/" in task_id or "\\" in task_id or ".." in task_id:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid task_id format"
+            )
+        task_file = complete_dir / f"{task_id}.json"
+        if not task_file.exists():
+            raise HTTPException(
+                status_code=404,
+                detail=f"Task {task_id} not complete yet"
+            )
+        with open(task_file) as f:
+            data = json.load(f)
+        if not data.get("result") or "disc_name" not in data.get("result", {}):
+            raise HTTPException(
+                status_code=404,
+                detail=f"Task {task_id} has no scan result"
+            )
+        result = data["result"]
+        return ScanResultResponse(
+            disc_name=result["disc_name"],
+            disc_type=result["disc_type"],
+            tracks=result.get("tracks", []),
+        )
+
+    # No task_id - find the most recent scan result
     scan_results = []
     for result_file in complete_dir.glob("*.json"):
         with open(result_file) as f:

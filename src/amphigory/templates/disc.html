@@ -124,12 +124,14 @@ async function pollForScanResult(taskId) {
 
     const poll = async () => {
         try {
-            const response = await fetch('/api/disc/scan-result');
+            // Pass task_id to only get result for THIS scan, not stale cached results
+            const response = await fetch(`/api/disc/scan-result?task_id=${encodeURIComponent(taskId)}`);
             if (response.ok) {
                 scanResult = await response.json();
                 displayScanResult(scanResult);
                 return;
             }
+            // 404 means task not complete yet - keep polling
         } catch (error) {
             console.log('Waiting for scan result...');
         }
