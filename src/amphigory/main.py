@@ -41,17 +41,11 @@ STATIC_DIR = BASE_DIR / "static"
 
 
 def _configure_logging():
-    """Configure uvicorn logging to prevent duplicates and filter noise.
+    """Add custom filters to uvicorn's access logger.
 
-    Must be called after uvicorn has set up its loggers.
+    Note: Duplicate prevention is handled by config/logging.yaml.
+    This just adds our custom filter for noisy polling endpoints.
     """
-    for name in ("uvicorn", "uvicorn.access", "uvicorn.error"):
-        log = logging.getLogger(name)
-        log.propagate = False
-        # Remove duplicate handlers (keep only one)
-        while len(log.handlers) > 1:
-            log.handlers.pop()
-    # Filter noisy polling endpoints
     logging.getLogger("uvicorn.access").addFilter(QuietAccessFilter())
 
 
