@@ -19,8 +19,6 @@
         <div class="tracks-header">
             <h2>Tracks</h2>
             <div class="track-actions">
-                <button type="button" class="btn btn-small" onclick="selectAll()">Select All</button>
-                <button type="button" class="btn btn-small" onclick="selectNone()">Select None</button>
                 <button type="button" class="btn btn-small" onclick="selectMain()">Select Main Feature</button>
             </div>
         </div>
@@ -53,7 +51,7 @@
 
             <div class="form-actions">
                 <button type="submit" class="btn btn-primary" id="rip-button" disabled>
-                    Rip Selected Tracks
+                    Process Selected Tracks
                 </button>
                 <span class="selected-count" id="selected-count">0 tracks selected</span>
             </div>
@@ -274,7 +272,7 @@ async function submitRipTasks(event) {
         console.error('Error creating rip tasks:', error);
         alert('Error creating rip tasks. Please try again.');
         ripButton.disabled = false;
-        ripButton.textContent = 'Rip Selected Tracks';
+        ripButton.textContent = 'Process Selected Tracks';
     }
 }
 
