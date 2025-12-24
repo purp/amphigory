@@ -312,6 +312,29 @@ class WebAppClient:
             "timestamp": datetime.now().isoformat(),
         })
 
+    async def send_disc_event(
+        self,
+        event: str,
+        device: str,
+        volume_name: Optional[str] = None,
+    ) -> None:
+        """
+        Send disc inserted/ejected event to webapp.
+
+        Args:
+            event: "inserted" or "ejected"
+            device: Device path (e.g., "/dev/rdisk4")
+            volume_name: Volume name for inserted disc
+        """
+        message = {
+            "type": "disc_event",
+            "event": event,
+            "device": device,
+        }
+        if volume_name is not None:
+            message["volume_name"] = volume_name
+        await self._send(message)
+
     async def start_heartbeat_loop(self, interval: float) -> None:
         """
         Run a heartbeat loop that sends periodic heartbeats.

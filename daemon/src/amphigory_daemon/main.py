@@ -451,7 +451,13 @@ class AmphigoryDaemon(rumps.App):
         self._update_disc_menu()
         self._update_icon()
 
-        # Send WebSocket event
+        # Send WebSocket event to webapp (Docker container)
+        if self.webapp_client and self.webapp_client.is_connected():
+            asyncio.create_task(
+                self.webapp_client.send_disc_event("inserted", device, volume_name)
+            )
+
+        # Also send to local browser clients (if any connected to daemon directly)
         if self.ws_server:
             asyncio.create_task(
                 self.ws_server.send_disc_event("inserted", device, volume_name)
@@ -469,7 +475,13 @@ class AmphigoryDaemon(rumps.App):
         self._update_disc_menu()
         self._update_icon()
 
-        # Send WebSocket event
+        # Send WebSocket event to webapp (Docker container)
+        if self.webapp_client and self.webapp_client.is_connected():
+            asyncio.create_task(
+                self.webapp_client.send_disc_event("ejected", device)
+            )
+
+        # Also send to local browser clients (if any connected to daemon directly)
         if self.ws_server:
             asyncio.create_task(
                 self.ws_server.send_disc_event("ejected", device)
@@ -598,6 +610,12 @@ class AmphigoryDaemon(rumps.App):
             def on_webapp_connect():
                 self.status_overlays.discard(StatusOverlay.DISCONNECTED)
                 self._update_icon()
+                # Send current disc status if a disc is inserted
+                if self.current_disc and self.webapp_client:
+                    device, volume_name = self.current_disc
+                    asyncio.create_task(
+                        self.webapp_client.send_disc_event("inserted", device, volume_name)
+                    )
 
             def on_webapp_disconnect():
                 self.status_overlays.add(StatusOverlay.DISCONNECTED)
