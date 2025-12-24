@@ -1,6 +1,7 @@
 """Tests for updated disc API that reads from daemon results."""
 
 import json
+import re
 import pytest
 from pathlib import Path
 from unittest.mock import patch
@@ -42,6 +43,46 @@ class TestDiscScan:
         # Verify task file was created
         task_file = tasks_dir / "queued" / f"{data['task_id']}.json"
         assert task_file.exists()
+
+    def test_task_id_has_human_readable_format(self, client, tasks_dir):
+        """Task ID uses human-readable timestamp format."""
+        response = client.post("/api/disc/scan")
+
+        assert response.status_code == 202
+        data = response.json()
+        task_id = data["task_id"]
+
+        # Verify format: YYYY-MM-DDTHH:MM:SS.ffffff-scan
+        pattern = r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}-scan$'
+        assert re.match(pattern, task_id), f"Task ID '{task_id}' does not match expected format"
+
+        # Verify the task type suffix
+        assert task_id.endswith("-scan")
+
+    def test_task_file_uses_human_readable_name(self, client, tasks_dir):
+        """Task file is created with human-readable name."""
+        response = client.post("/api/disc/scan")
+
+        task_id = response.json()["task_id"]
+        task_file = tasks_dir / "queued" / f"{task_id}.json"
+
+        assert task_file.exists()
+
+        # Verify file name matches pattern
+        assert re.match(r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}-scan\.json$', task_file.name)
+
+    def test_task_id_in_json_matches_filename(self, client, tasks_dir):
+        """Task ID in JSON matches the filename (without .json)."""
+        response = client.post("/api/disc/scan")
+
+        task_id = response.json()["task_id"]
+        task_file = tasks_dir / "queued" / f"{task_id}.json"
+
+        with open(task_file) as f:
+            task_data = json.load(f)
+
+        assert task_data["id"] == task_id
+        assert task_file.stem == task_id
 
 
 class TestDiscScanResult:

@@ -24,6 +24,22 @@ def get_tasks_dir() -> Path:
     return data_dir / "tasks"
 
 
+def generate_task_id(task_type: str) -> str:
+    """Generate a human-readable task ID.
+
+    Format: YYYY-MM-DDTHH:MM:SS.ffffff-{task_type}
+    Example: 2024-12-24T14:30:15.123456-scan
+
+    Args:
+        task_type: Type of task (scan, rip, etc.)
+
+    Returns:
+        Human-readable task ID with timestamp and type
+    """
+    timestamp = datetime.now().isoformat(timespec='microseconds')
+    return f"{timestamp}-{task_type}"
+
+
 class TrackInfo(BaseModel):
     """Track information for rip tasks."""
     number: int
@@ -98,7 +114,7 @@ async def create_scan_task() -> TaskResponse:
     tasks_dir = get_tasks_dir()
     ensure_directories(tasks_dir)
 
-    task_id = str(uuid.uuid4())
+    task_id = generate_task_id("scan")
     task_data = {
         "id": task_id,
         "type": "scan",
@@ -125,7 +141,7 @@ async def create_rip_task(request: CreateRipTaskRequest) -> TaskResponse:
     tasks_dir = get_tasks_dir()
     ensure_directories(tasks_dir)
 
-    task_id = str(uuid.uuid4())
+    task_id = generate_task_id("rip")
     task_data = {
         "id": task_id,
         "type": "rip",

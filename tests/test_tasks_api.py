@@ -1,6 +1,7 @@
 """Tests for tasks API endpoints."""
 
 import json
+import re
 import pytest
 from pathlib import Path
 from unittest.mock import patch
@@ -50,6 +51,21 @@ class TestCreateScanTask:
         assert task_data["type"] == "scan"
         assert task_data["id"] == data["task_id"]
 
+    def test_task_id_has_human_readable_format(self, client, tasks_dir):
+        """Task ID uses human-readable timestamp format."""
+        response = client.post("/api/tasks/scan")
+
+        assert response.status_code == 201
+        data = response.json()
+        task_id = data["task_id"]
+
+        # Verify format: YYYY-MM-DDTHH:MM:SS.ffffff-scan
+        pattern = r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}-scan$'
+        assert re.match(pattern, task_id), f"Task ID '{task_id}' does not match expected format"
+
+        # Verify the task type suffix
+        assert task_id.endswith("-scan")
+
     def test_updates_tasks_json(self, client, tasks_dir):
         """Creating a task adds its ID to tasks.json."""
         response = client.post("/api/tasks/scan")
@@ -92,6 +108,27 @@ class TestCreateRipTask:
         assert task_data["type"] == "rip"
         assert task_data["track"]["number"] == 1
 
+    def test_task_id_has_human_readable_format(self, client, tasks_dir):
+        """Rip task ID uses human-readable timestamp format."""
+        response = client.post(
+            "/api/tasks/rip",
+            json={
+                "track_number": 1,
+                "output_filename": "movie.mkv",
+            }
+        )
+
+        assert response.status_code == 201
+        data = response.json()
+        task_id = data["task_id"]
+
+        # Verify format: YYYY-MM-DDTHH:MM:SS.ffffff-rip
+        pattern = r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}-rip$'
+        assert re.match(pattern, task_id), f"Task ID '{task_id}' does not match expected format"
+
+        # Verify the task type suffix
+        assert task_id.endswith("-rip")
+
     def test_requires_track_number(self, client):
         """Rip task requires track_number."""
         response = client.post(
@@ -99,6 +136,30 @@ class TestCreateRipTask:
             json={"output_filename": "movie.mkv"}
         )
         assert response.status_code == 422
+
+    def test_task_ids_sort_chronologically(self, client, tasks_dir):
+        """Task IDs with timestamps sort chronologically."""
+        import time
+
+        # Create first task
+        response1 = client.post(
+            "/api/tasks/rip",
+            json={"track_number": 1, "output_filename": "movie1.mkv"}
+        )
+        task_id1 = response1.json()["task_id"]
+
+        # Wait a tiny bit to ensure different timestamps
+        time.sleep(0.01)
+
+        # Create second task
+        response2 = client.post(
+            "/api/tasks/rip",
+            json={"track_number": 2, "output_filename": "movie2.mkv"}
+        )
+        task_id2 = response2.json()["task_id"]
+
+        # Verify earlier task has earlier ID (lexicographic sort)
+        assert task_id1 < task_id2
 
 
 class TestGetTaskStatus:

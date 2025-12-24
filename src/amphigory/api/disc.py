@@ -27,6 +27,22 @@ def get_tasks_dir() -> Path:
     return data_dir / "tasks"
 
 
+def generate_task_id(task_type: str) -> str:
+    """Generate a human-readable task ID.
+
+    Format: YYYY-MM-DDTHH:MM:SS.ffffff-{task_type}
+    Example: 2024-12-24T14:30:15.123456-scan
+
+    Args:
+        task_type: Type of task (scan, rip, etc.)
+
+    Returns:
+        Human-readable task ID with timestamp and type
+    """
+    timestamp = datetime.now().isoformat(timespec='microseconds')
+    return f"{timestamp}-{task_type}"
+
+
 class DiscStatusResponse(BaseModel):
     """Disc status response."""
     has_disc: bool
@@ -75,7 +91,7 @@ async def scan_current_disc(request: Request) -> ScanTaskResponse:
     tasks_dir = get_tasks_dir()
     (tasks_dir / "queued").mkdir(parents=True, exist_ok=True)
 
-    task_id = str(uuid.uuid4())
+    task_id = generate_task_id("scan")
     task_data = {
         "id": task_id,
         "type": "scan",
@@ -147,7 +163,7 @@ async def get_disc_status_html(request: Request):
             return f'''
             <div class="disc-detected">
                 <p class="status-message status-success">Disc detected: {daemon.disc_volume or "Unknown"}</p>
-                <p class="status-detail">Device: {daemon.disc_device} (via {daemon.daemon_id})</p>
+                <p class="status-detail">{daemon.daemon_id} {daemon.disc_device}</p>
                 <button hx-post="/api/disc/scan" hx-target="#disc-info" class="btn btn-primary">
                     Scan Disc
                 </button>
