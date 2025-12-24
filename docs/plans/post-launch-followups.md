@@ -2,10 +2,6 @@
 
 Items deferred to focus on getting to a fully functional system first.
 
-## UI/UX
-
-- [ ] Fix Safari layout issue on Settings page (CSS flexbox/grid compatibility)
-
 ## Logging
 
 - [ ] Webapp WebSocket logging not showing daemon_id on connect/disconnect (need to verify implementation)
@@ -15,6 +11,12 @@ Items deferred to focus on getting to a fully functional system first.
 ## Packaging
 
 - [ ] Resolve py2app/Python 3.14 conflict (use Python 3.11 via pyenv or alternative tooling)
+
+## Deployment / CI/CD
+
+- [ ] Get container image registry working properly
+- [ ] Build container image and push to registry
+- [ ] Auto-restart container when new image is pushed to registry (watchtower or similar)
 
 ## Future Enhancements
 

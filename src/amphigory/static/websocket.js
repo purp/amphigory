@@ -30,6 +30,9 @@ class AmphigoryWebSocket {
         this.statusIndicator = document.getElementById('daemon-status');
         this.discInfo = document.getElementById('disc-info');
 
+        // Fetch initial daemon status
+        this.fetchDaemonStatus();
+
         this.connect();
 
         // Register default handlers
@@ -37,6 +40,20 @@ class AmphigoryWebSocket {
         this.on('disc_event', (data) => this.handleDiscEvent(data));
         this.on('progress', (data) => this.handleProgress(data));
         this.on('heartbeat', (data) => this.handleHeartbeat(data));
+    }
+
+    /**
+     * Fetch daemon status from API
+     */
+    async fetchDaemonStatus() {
+        try {
+            const response = await fetch('/api/settings/daemons');
+            const data = await response.json();
+            const daemonCount = data.daemons ? data.daemons.length : 0;
+            this.updateDaemonStatus(daemonCount > 0, daemonCount);
+        } catch (error) {
+            console.error('Failed to fetch daemon status:', error);
+        }
     }
 
     /**
@@ -52,18 +69,17 @@ class AmphigoryWebSocket {
             this.ws.onopen = () => {
                 console.log('WebSocket connected');
                 this.reconnectAttempts = 0;
-                this.updateConnectionStatus('connected');
+                // Refresh daemon status when reconnected
+                this.fetchDaemonStatus();
             };
 
             this.ws.onclose = (event) => {
                 console.log('WebSocket closed:', event.code, event.reason);
-                this.updateConnectionStatus('disconnected');
                 this.scheduleReconnect();
             };
 
             this.ws.onerror = (error) => {
                 console.error('WebSocket error:', error);
-                this.updateConnectionStatus('error');
             };
 
             this.ws.onmessage = (event) => {
@@ -71,7 +87,6 @@ class AmphigoryWebSocket {
             };
         } catch (error) {
             console.error('Failed to create WebSocket:', error);
-            this.updateConnectionStatus('error');
             this.scheduleReconnect();
         }
     }
@@ -128,21 +143,21 @@ class AmphigoryWebSocket {
     }
 
     /**
-     * Update the connection status indicator
+     * Update the daemon status indicator based on actual daemon connections
      */
-    updateConnectionStatus(status) {
+    updateDaemonStatus(connected, count = 0) {
         if (!this.statusIndicator) return;
 
-        this.statusIndicator.className = `daemon-status status-${status}`;
-
-        const statusText = {
-            'connected': 'Daemon Connected',
-            'disconnected': 'Daemon Disconnected',
-            'error': 'Connection Error',
-        }[status] || 'Unknown';
-
-        this.statusIndicator.textContent = statusText;
-        this.statusIndicator.title = statusText;
+        if (connected) {
+            this.statusIndicator.className = 'daemon-status status-connected';
+            const text = count === 1 ? 'Daemon Connected' : `${count} Daemons Connected`;
+            this.statusIndicator.textContent = text;
+            this.statusIndicator.title = text;
+        } else {
+            this.statusIndicator.className = 'daemon-status status-disconnected';
+            this.statusIndicator.textContent = 'No Daemon';
+            this.statusIndicator.title = 'No daemon connected';
+        }
     }
 
     /**
@@ -150,6 +165,8 @@ class AmphigoryWebSocket {
      */
     handleDaemonConfig(data) {
         console.log('Daemon registered:', data.daemon_id);
+        // Refresh daemon status from API to get accurate count
+        this.fetchDaemonStatus();
         this.updateDaemonInfo(data);
     }
 
