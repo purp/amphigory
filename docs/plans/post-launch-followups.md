@@ -23,3 +23,4 @@ Items deferred to focus on getting to a fully functional system first.
 ## Future Enhancements
 
 - [ ] Show HandBrake preset for each track on Disc Review page, with dropdown to select different preset
+- [ ] Track previews: grab 60 seconds of a track for quick preview transcoding
