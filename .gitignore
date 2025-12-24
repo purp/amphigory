@@ -9,3 +9,6 @@ data/
 build/
 dist/
 *.iconset/
+
+# Claude Code local settings
+.claude/settings.local.json
