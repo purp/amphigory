@@ -311,3 +311,24 @@ class WebAppClient:
             "type": "heartbeat",
             "timestamp": datetime.now().isoformat(),
         })
+
+    async def start_heartbeat_loop(self, interval: float) -> None:
+        """
+        Run a heartbeat loop that sends periodic heartbeats.
+
+        Args:
+            interval: Seconds between heartbeats
+
+        This method runs until:
+        - The connection is lost
+        - The task is cancelled
+        """
+        try:
+            while self.is_connected():
+                await self.send_heartbeat()
+                await asyncio.sleep(interval)
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            # Connection lost or other error - exit loop
+            pass

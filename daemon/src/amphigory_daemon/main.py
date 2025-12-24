@@ -131,6 +131,7 @@ class AmphigoryDaemon(rumps.App):
         self.current_disc: Optional[tuple[str, str]] = None  # (device, volume)
         self._running = False
         self._task_loop: Optional[asyncio.Task] = None
+        self._heartbeat_task: Optional[asyncio.Task] = None
 
         # Activity state
         self.activity_state = ActivityState.IDLE_EMPTY
@@ -231,6 +232,8 @@ class AmphigoryDaemon(rumps.App):
         """Quit the application."""
         logger.info("Quit requested")
         self._running = False
+        if self._heartbeat_task:
+            self._heartbeat_task.cancel()
         if self.ws_server:
             asyncio.create_task(self.ws_server.stop())
         if self.disc_detector:
@@ -571,6 +574,14 @@ class AmphigoryDaemon(rumps.App):
                     webapp_basedir=self.daemon_config.webapp_basedir,
                 )
                 logger.info(f"Connected to webapp at {webapp_ws_url}")
+
+                # Start heartbeat loop
+                self._heartbeat_task = asyncio.create_task(
+                    self.webapp_client.start_heartbeat_loop(
+                        self.webapp_config.heartbeat_interval
+                    )
+                )
+                logger.info(f"Heartbeat loop started (interval: {self.webapp_config.heartbeat_interval}s)")
             except Exception as e:
                 logger.warning(f"Could not connect to webapp WebSocket: {e}")
                 self.status_overlays.add(StatusOverlay.DISCONNECTED)

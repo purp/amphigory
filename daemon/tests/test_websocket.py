@@ -406,3 +406,104 @@ class TestWebAppClient:
 
             # Client should detect disconnection
             assert not client.is_connected()
+
+
+class TestHeartbeatLoop:
+    """Tests for the heartbeat loop functionality."""
+
+    @pytest.mark.asyncio
+    async def test_start_heartbeat_loop_sends_periodic_heartbeats(self):
+        """start_heartbeat_loop sends heartbeats at configured interval."""
+        from amphigory_daemon.websocket import WebAppClient
+
+        received_messages = []
+
+        async def handler(websocket):
+            async for message in websocket:
+                received_messages.append(json.loads(message))
+
+        async with websockets.serve(handler, "localhost", 19860):
+            client = WebAppClient("ws://localhost:19860")
+            await client.connect()
+
+            # Start heartbeat with 0.1 second interval
+            loop_task = asyncio.create_task(client.start_heartbeat_loop(0.1))
+
+            # Wait long enough for 2-3 heartbeats
+            await asyncio.sleep(0.35)
+
+            loop_task.cancel()
+            try:
+                await loop_task
+            except asyncio.CancelledError:
+                pass
+
+            await client.disconnect()
+
+        # Should have received at least 2 heartbeats
+        heartbeats = [m for m in received_messages if m.get("type") == "heartbeat"]
+        assert len(heartbeats) >= 2
+
+    @pytest.mark.asyncio
+    async def test_heartbeat_loop_stops_on_disconnect(self):
+        """Heartbeat loop stops gracefully when disconnected."""
+        from amphigory_daemon.websocket import WebAppClient
+
+        server_should_close = asyncio.Event()
+        received_count = 0
+
+        async def handler(websocket):
+            nonlocal received_count
+            try:
+                async for message in websocket:
+                    received_count += 1
+                    if received_count >= 2:
+                        server_should_close.set()
+                        await asyncio.sleep(0.1)
+                        await websocket.close()
+                        break
+            except websockets.exceptions.ConnectionClosed:
+                pass
+
+        async with websockets.serve(handler, "localhost", 19861):
+            client = WebAppClient("ws://localhost:19861")
+            await client.connect()
+
+            # Start heartbeat loop
+            loop_task = asyncio.create_task(client.start_heartbeat_loop(0.05))
+
+            # Wait for server to close connection
+            await server_should_close.wait()
+            await asyncio.sleep(0.3)
+
+            # Loop should have exited (not hang indefinitely)
+            assert loop_task.done() or loop_task.cancelled()
+
+    @pytest.mark.asyncio
+    async def test_heartbeat_loop_is_cancellable(self):
+        """Heartbeat loop can be cancelled cleanly."""
+        from amphigory_daemon.websocket import WebAppClient
+
+        async def handler(websocket):
+            async for message in websocket:
+                pass
+
+        async with websockets.serve(handler, "localhost", 19862):
+            client = WebAppClient("ws://localhost:19862")
+            await client.connect()
+
+            loop_task = asyncio.create_task(client.start_heartbeat_loop(1.0))
+
+            # Cancel almost immediately
+            await asyncio.sleep(0.05)
+            loop_task.cancel()
+
+            # Should not raise
+            try:
+                await loop_task
+            except asyncio.CancelledError:
+                pass
+
+            await client.disconnect()
+
+        # Test passes if no exception raised
