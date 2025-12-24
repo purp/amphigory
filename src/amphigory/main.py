@@ -40,16 +40,25 @@ TEMPLATES_DIR = BASE_DIR / "templates"
 STATIC_DIR = BASE_DIR / "static"
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    """Application lifespan handler."""
-    # Configure logging after uvicorn has set up its loggers
-    # Prevent duplicates by disabling propagation to root
+def _configure_logging():
+    """Configure uvicorn logging to prevent duplicates and filter noise.
+
+    Must be called after uvicorn has set up its loggers.
+    """
     for name in ("uvicorn", "uvicorn.access", "uvicorn.error"):
         log = logging.getLogger(name)
         log.propagate = False
-    # Filter noisy polling endpoints from access logs
+        # Remove duplicate handlers (keep only one)
+        while len(log.handlers) > 1:
+            log.handlers.pop()
+    # Filter noisy polling endpoints
     logging.getLogger("uvicorn.access").addFilter(QuietAccessFilter())
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Application lifespan handler."""
+    _configure_logging()
 
     # Initialize database
     config = get_config()
