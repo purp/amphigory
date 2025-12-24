@@ -1,31 +1,16 @@
 """FastAPI application entry point."""
 
 import logging
-import sys
 from pathlib import Path
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 
-# Configure logging to prevent duplicates
-# Uvicorn sets up its own handlers, so we disable propagation
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(levelname)s:     %(message)s",
-    handlers=[logging.StreamHandler(sys.stdout)],
-)
-# Prevent uvicorn loggers from propagating to root (causes duplicates)
-logging.getLogger("uvicorn").propagate = False
-logging.getLogger("uvicorn.access").propagate = False
-logging.getLogger("uvicorn.error").propagate = False
+logger = logging.getLogger(__name__)
 
 
 class QuietAccessFilter(logging.Filter):
-    """Filter out noisy polling endpoints from access logs.
-
-    These endpoints are called frequently by the browser and clutter logs.
-    They're still logged at DEBUG level if needed.
-    """
+    """Filter out noisy polling endpoints from access logs."""
     QUIET_PATHS = (
         "/api/jobs/active",
         "/api/disc/status-html",
@@ -38,17 +23,8 @@ class QuietAccessFilter(logging.Filter):
         message = record.getMessage()
         for path in self.QUIET_PATHS:
             if path in message:
-                # Log at DEBUG instead of filtering completely
-                record.levelno = logging.DEBUG
-                record.levelname = "DEBUG"
-                return True
+                return False  # Don't log these at all
         return True
-
-
-# Apply filter to uvicorn access logger
-logging.getLogger("uvicorn.access").addFilter(QuietAccessFilter())
-
-logger = logging.getLogger(__name__)
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse
@@ -67,6 +43,14 @@ STATIC_DIR = BASE_DIR / "static"
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan handler."""
+    # Configure logging after uvicorn has set up its loggers
+    # Prevent duplicates by disabling propagation to root
+    for name in ("uvicorn", "uvicorn.access", "uvicorn.error"):
+        log = logging.getLogger(name)
+        log.propagate = False
+    # Filter noisy polling endpoints from access logs
+    logging.getLogger("uvicorn.access").addFilter(QuietAccessFilter())
+
     # Initialize database
     config = get_config()
     app.state.db = Database(config.database_path)
