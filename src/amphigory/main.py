@@ -1,9 +1,12 @@
 """FastAPI application entry point."""
 
+import logging
 from pathlib import Path
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+
+logger = logging.getLogger(__name__)
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse
@@ -127,6 +130,7 @@ async def websocket_endpoint(websocket: WebSocket):
 
     await manager.connect(websocket)
     daemon_id = None
+    logger.info("WebSocket connection opened")
 
     try:
         while True:
@@ -147,6 +151,7 @@ async def websocket_endpoint(websocket: WebSocket):
                             connected_at=now,
                             last_seen=now,
                         )
+                        logger.info(f"Daemon registered: {daemon_id}")
 
                 elif msg_type == "heartbeat" and daemon_id:
                     # Update last_seen on heartbeat
@@ -158,6 +163,10 @@ async def websocket_endpoint(websocket: WebSocket):
 
     except WebSocketDisconnect:
         # Remove daemon on disconnect
-        if daemon_id and daemon_id in _daemons:
-            del _daemons[daemon_id]
+        if daemon_id:
+            logger.info(f"WebSocket connection closed: {daemon_id}")
+            if daemon_id in _daemons:
+                del _daemons[daemon_id]
+        else:
+            logger.info("WebSocket connection closed")
         manager.disconnect(websocket)
