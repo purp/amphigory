@@ -1,0 +1,162 @@
+{% extends "base.html" %}
+
+{% block title %}Queue - Amphigory{% endblock %}
+
+{% block content %}
+<div class="queue-page">
+    <header class="page-header">
+        <h1>Task Queue</h1>
+    </header>
+
+    <section class="current-task card" id="current-task-section">
+        <h2>Current Task</h2>
+        <div id="current-task">
+            <p class="text-muted">No task currently running</p>
+        </div>
+    </section>
+
+    <section class="queued-tasks card">
+        <h2>Queued Tasks</h2>
+        <div id="queued-tasks">
+            <p class="text-muted">No tasks in queue</p>
+        </div>
+    </section>
+
+    <section class="completed-tasks card">
+        <div class="section-header">
+            <h2>Recently Completed</h2>
+            <button class="btn btn-small btn-secondary" onclick="toggleCompleted()">
+                Show/Hide
+            </button>
+        </div>
+        <div id="completed-tasks" class="collapsed">
+            <p class="text-muted">No completed tasks</p>
+        </div>
+    </section>
+</div>
+
+<script>
+let tasks = { queued: [], in_progress: [], completed: [] };
+
+async function loadTasks() {
+    try {
+        const response = await fetch('/api/tasks');
+        const data = await response.json();
+
+        // Group by status
+        tasks.queued = data.tasks.filter(t => t.status === 'queued');
+        tasks.in_progress = data.tasks.filter(t => t.status === 'in_progress');
+        tasks.completed = data.tasks.filter(t => t.status === 'success' || t.status === 'failed');
+
+        renderCurrentTask();
+        renderQueuedTasks();
+        renderCompletedTasks();
+    } catch (error) {
+        console.error('Error loading tasks:', error);
+    }
+}
+
+function renderCurrentTask() {
+    const container = document.getElementById('current-task');
+
+    if (tasks.in_progress.length === 0) {
+        container.innerHTML = '<p class="text-muted">No task currently running</p>';
+        return;
+    }
+
+    const task = tasks.in_progress[0];
+    container.innerHTML = `
+        <div class="task-item task-running">
+            <div class="task-header">
+                <span class="task-type">${task.type}</span>
+                <span class="task-id">${task.id.substring(0, 8)}...</span>
+            </div>
+            <div class="progress-container">
+                <div class="progress-bar">
+                    <div class="progress-bar-fill" id="progress-${task.id}" style="width: 0%"></div>
+                </div>
+                <span class="progress-text" id="progress-text-${task.id}">Processing...</span>
+            </div>
+        </div>
+    `;
+}
+
+function renderQueuedTasks() {
+    const container = document.getElementById('queued-tasks');
+
+    if (tasks.queued.length === 0) {
+        container.innerHTML = '<p class="text-muted">No tasks in queue</p>';
+        return;
+    }
+
+    container.innerHTML = tasks.queued.map((task, index) => `
+        <div class="task-item task-queued">
+            <div class="task-header">
+                <span class="task-position">#${index + 1}</span>
+                <span class="task-type">${task.type}</span>
+                <span class="task-id">${task.id.substring(0, 8)}...</span>
+            </div>
+            <div class="task-meta">
+                ${task.type === 'rip' ? '<span class="task-detail">Rip track</span>' : ''}
+                ${task.type === 'scan' ? '<span class="task-detail">Scan disc</span>' : ''}
+            </div>
+        </div>
+    `).join('');
+}
+
+function renderCompletedTasks() {
+    const container = document.getElementById('completed-tasks');
+
+    if (tasks.completed.length === 0) {
+        container.innerHTML = '<p class="text-muted">No completed tasks</p>';
+        return;
+    }
+
+    // Show most recent first, limit to 10
+    const recentTasks = tasks.completed.slice(0, 10);
+
+    container.innerHTML = recentTasks.map(task => `
+        <div class="task-item task-${task.status}">
+            <div class="task-header">
+                <span class="task-status status-${task.status}">${task.status}</span>
+                <span class="task-type">${task.type || 'task'}</span>
+                <span class="task-id">${task.id.substring(0, 8)}...</span>
+            </div>
+        </div>
+    `).join('');
+}
+
+function toggleCompleted() {
+    const container = document.getElementById('completed-tasks');
+    container.classList.toggle('collapsed');
+}
+
+// Listen for progress updates via WebSocket
+document.addEventListener('amphigory:progress', (e) => {
+    const data = e.detail;
+    const progressBar = document.getElementById(`progress-${data.task_id}`);
+    const progressText = document.getElementById(`progress-text-${data.task_id}`);
+
+    if (progressBar) {
+        progressBar.style.width = `${data.percent}%`;
+    }
+    if (progressText) {
+        let text = `${data.percent}%`;
+        if (data.eta_seconds) {
+            const mins = Math.floor(data.eta_seconds / 60);
+            const secs = data.eta_seconds % 60;
+            text += ` - ${mins}:${secs.toString().padStart(2, '0')} remaining`;
+        }
+        progressText.textContent = text;
+    }
+});
+
+// Refresh periodically
+function startPolling() {
+    loadTasks();
+    setInterval(loadTasks, 5000);
+}
+
+document.addEventListener('DOMContentLoaded', startPolling);
+</script>
+{% endblock %}

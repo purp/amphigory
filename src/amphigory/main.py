@@ -80,6 +80,16 @@ async def disc_review_page(request: Request):
     )
 
 
+@app.get("/queue", response_class=HTMLResponse)
+async def queue_page(request: Request):
+    """Queue page showing task status."""
+    return templates.TemplateResponse(
+        request,
+        "queue.html",
+        {"active_page": "queue"},
+    )
+
+
 @app.get("/settings", response_class=HTMLResponse)
 async def settings_page(request: Request):
     """Settings page."""
