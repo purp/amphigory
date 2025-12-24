@@ -12,7 +12,7 @@ from typing import Optional
 import rumps
 import yaml
 
-from .config import get_config, load_local_config, fetch_webapp_config
+from .config import get_config, load_local_config, fetch_webapp_config, validate_config
 from .dialogs import ConfigDialog
 from .discovery import discover_makemkvcon
 from .disc import DiscDetector
@@ -508,6 +508,14 @@ class AmphigoryDaemon(rumps.App):
                 config_file, cache_file
             )
             logger.info(f"Configuration loaded from {self.daemon_config.webapp_url}")
+
+            # Validate configuration
+            validation = validate_config(self.daemon_config)
+            if not validation.is_valid:
+                if validation.makemkvcon_error:
+                    logger.warning(f"Config validation: {validation.makemkvcon_error}")
+                if validation.basedir_error:
+                    logger.warning(f"Config validation: {validation.basedir_error}")
 
             # Generate daemon_id if not set
             if not self.daemon_config.daemon_id:

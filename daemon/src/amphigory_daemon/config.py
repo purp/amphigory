@@ -1,6 +1,8 @@
 """Configuration management for Amphigory daemon."""
 
 import json
+import os
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
@@ -8,6 +10,67 @@ import httpx
 import yaml
 
 from .models import DaemonConfig, WebappConfig, webapp_config_from_dict
+
+
+@dataclass
+class ConfigValidationResult:
+    """Result of config validation."""
+    makemkvcon_valid: bool
+    makemkvcon_error: Optional[str]
+    basedir_valid: bool
+    basedir_error: Optional[str]
+
+    @property
+    def is_valid(self) -> bool:
+        """Return True if all validations passed."""
+        return self.makemkvcon_valid and self.basedir_valid
+
+
+def validate_config(config: DaemonConfig) -> ConfigValidationResult:
+    """
+    Validate daemon configuration.
+
+    Checks:
+    - makemkvcon_path exists and is executable
+    - webapp_basedir exists and is accessible
+
+    Args:
+        config: DaemonConfig to validate
+
+    Returns:
+        ConfigValidationResult with validation status and errors
+    """
+    # Validate makemkvcon_path
+    makemkvcon_valid = False
+    makemkvcon_error = None
+
+    if config.makemkvcon_path is None:
+        makemkvcon_error = "makemkvcon path not configured"
+    elif not Path(config.makemkvcon_path).exists():
+        makemkvcon_error = f"makemkvcon not found at {config.makemkvcon_path}"
+    elif not os.access(config.makemkvcon_path, os.X_OK):
+        makemkvcon_error = f"makemkvcon not executable at {config.makemkvcon_path}"
+    else:
+        makemkvcon_valid = True
+
+    # Validate webapp_basedir
+    basedir_valid = False
+    basedir_error = None
+
+    basedir = Path(config.webapp_basedir)
+    if not basedir.exists():
+        basedir_error = f"Data directory not found at {config.webapp_basedir}"
+    elif not os.access(config.webapp_basedir, os.R_OK):
+        basedir_error = f"Data directory not readable at {config.webapp_basedir}"
+    else:
+        basedir_valid = True
+
+    return ConfigValidationResult(
+        makemkvcon_valid=makemkvcon_valid,
+        makemkvcon_error=makemkvcon_error,
+        basedir_valid=basedir_valid,
+        basedir_error=basedir_error,
+    )
 
 
 def load_local_config(config_file: Path) -> DaemonConfig:

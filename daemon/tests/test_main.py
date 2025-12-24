@@ -530,3 +530,172 @@ class TestConfigurationDialog:
             daemon.open_webapp(None)
 
             mock_dialog.assert_called_once()
+
+
+class TestStartupValidation:
+    """Tests for config validation on startup."""
+
+    @pytest.mark.asyncio
+    async def test_initialize_calls_validate_config(self, tmp_path):
+        """initialize() calls validate_config after loading config."""
+        from amphigory_daemon.main import AmphigoryDaemon
+        from amphigory_daemon.models import DaemonConfig, WebappConfig
+        import yaml
+
+        # Create a config file
+        config_file = tmp_path / "daemon.yaml"
+        config_file.write_text(yaml.dump({
+            "webapp_url": "http://localhost:6199",
+            "webapp_basedir": str(tmp_path),
+        }))
+        cache_file = tmp_path / "cached_config.json"
+
+        daemon = AmphigoryDaemon()
+
+        with patch("amphigory_daemon.main.get_config", new_callable=AsyncMock) as mock_get_config:
+            mock_get_config.return_value = (
+                DaemonConfig(
+                    webapp_url="http://localhost:6199",
+                    webapp_basedir=str(tmp_path),
+                ),
+                WebappConfig(
+                    tasks_directory="/tasks",
+                    websocket_port=8765,
+                    wiki_url="http://localhost/wiki",
+                    heartbeat_interval=30,
+                    log_level="INFO",
+                    makemkv_path=None,
+                ),
+            )
+            with patch("amphigory_daemon.main.validate_config") as mock_validate:
+                from amphigory_daemon.config import ConfigValidationResult
+                mock_validate.return_value = ConfigValidationResult(
+                    makemkvcon_valid=True,
+                    makemkvcon_error=None,
+                    basedir_valid=True,
+                    basedir_error=None,
+                )
+                with patch("amphigory_daemon.main.discover_makemkvcon") as mock_discover:
+                    mock_discover.return_value = Path("/usr/bin/makemkvcon")
+                    with patch("amphigory_daemon.main.WebSocketServer"):
+                        with patch("amphigory_daemon.main.WebAppClient"):
+                            with patch("amphigory_daemon.main.DiscDetector"):
+                                with patch("amphigory_daemon.main.TaskQueue"):
+                                    await daemon.initialize(config_file, cache_file)
+
+                mock_validate.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_initialize_logs_validation_errors(self, tmp_path, caplog):
+        """initialize() logs validation errors."""
+        from amphigory_daemon.main import AmphigoryDaemon
+        from amphigory_daemon.models import DaemonConfig, WebappConfig
+        from amphigory_daemon.config import ConfigValidationResult
+        import yaml
+        import logging
+
+        # Create a config file
+        config_file = tmp_path / "daemon.yaml"
+        config_file.write_text(yaml.dump({
+            "webapp_url": "http://localhost:6199",
+            "webapp_basedir": "/nonexistent/path",
+        }))
+        cache_file = tmp_path / "cached_config.json"
+
+        daemon = AmphigoryDaemon()
+
+        with patch("amphigory_daemon.main.get_config", new_callable=AsyncMock) as mock_get_config:
+            mock_get_config.return_value = (
+                DaemonConfig(
+                    webapp_url="http://localhost:6199",
+                    webapp_basedir="/nonexistent/path",
+                ),
+                WebappConfig(
+                    tasks_directory="/tasks",
+                    websocket_port=8765,
+                    wiki_url="http://localhost/wiki",
+                    heartbeat_interval=30,
+                    log_level="INFO",
+                    makemkv_path=None,
+                ),
+            )
+            with patch("amphigory_daemon.main.validate_config") as mock_validate:
+                mock_validate.return_value = ConfigValidationResult(
+                    makemkvcon_valid=False,
+                    makemkvcon_error="makemkvcon not found at /usr/bin/makemkvcon",
+                    basedir_valid=False,
+                    basedir_error="Data directory not found at /nonexistent/path",
+                )
+                with patch("amphigory_daemon.main.discover_makemkvcon") as mock_discover:
+                    mock_discover.return_value = Path("/usr/bin/makemkvcon")
+                    with patch("amphigory_daemon.main.WebSocketServer"):
+                        with patch("amphigory_daemon.main.WebAppClient"):
+                            with patch("amphigory_daemon.main.DiscDetector"):
+                                with patch("amphigory_daemon.main.TaskQueue"):
+                                    with caplog.at_level(logging.WARNING):
+                                        await daemon.initialize(config_file, cache_file)
+
+        # Check that validation errors were logged
+        assert "makemkvcon not found" in caplog.text or "Data directory not found" in caplog.text
+
+    @pytest.mark.asyncio
+    async def test_initialize_continues_with_partial_validation(self, tmp_path):
+        """initialize() continues even when validation has errors (non-fatal)."""
+        from amphigory_daemon.main import AmphigoryDaemon
+        from amphigory_daemon.models import DaemonConfig, WebappConfig
+        from amphigory_daemon.config import ConfigValidationResult
+        import yaml
+
+        # Create a config file
+        config_file = tmp_path / "daemon.yaml"
+        config_file.write_text(yaml.dump({
+            "webapp_url": "http://localhost:6199",
+            "webapp_basedir": str(tmp_path),
+        }))
+        cache_file = tmp_path / "cached_config.json"
+
+        daemon = AmphigoryDaemon()
+
+        with patch("amphigory_daemon.main.get_config", new_callable=AsyncMock) as mock_get_config:
+            mock_get_config.return_value = (
+                DaemonConfig(
+                    webapp_url="http://localhost:6199",
+                    webapp_basedir=str(tmp_path),
+                ),
+                WebappConfig(
+                    tasks_directory="/tasks",
+                    websocket_port=8765,
+                    wiki_url="http://localhost/wiki",
+                    heartbeat_interval=30,
+                    log_level="INFO",
+                    makemkv_path=None,
+                ),
+            )
+            with patch("amphigory_daemon.main.validate_config") as mock_validate:
+                # basedir is valid but makemkvcon is not (yet)
+                mock_validate.return_value = ConfigValidationResult(
+                    makemkvcon_valid=False,
+                    makemkvcon_error="makemkvcon path not configured",
+                    basedir_valid=True,
+                    basedir_error=None,
+                )
+                with patch("amphigory_daemon.main.discover_makemkvcon") as mock_discover:
+                    mock_discover.return_value = Path("/usr/bin/makemkvcon")
+                    with patch("amphigory_daemon.main.WebSocketServer") as mock_ws:
+                        mock_ws_instance = MagicMock()
+                        mock_ws_instance.start = AsyncMock()
+                        mock_ws.return_value = mock_ws_instance
+                        with patch("amphigory_daemon.main.WebAppClient") as mock_client:
+                            mock_client_instance = MagicMock()
+                            mock_client_instance.connect = AsyncMock()
+                            mock_client_instance.send_daemon_config = AsyncMock()
+                            mock_client.return_value = mock_client_instance
+                            with patch("amphigory_daemon.main.DiscDetector") as mock_disc:
+                                mock_disc_instance = MagicMock()
+                                mock_disc_instance.get_current_disc.return_value = None
+                                mock_disc.return_value = mock_disc_instance
+                                with patch("amphigory_daemon.main.TaskQueue"):
+                                    result = await daemon.initialize(config_file, cache_file)
+
+        # Should still succeed - makemkvcon discovery happens after validation
+        assert result is True

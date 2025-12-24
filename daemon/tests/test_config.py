@@ -420,3 +420,142 @@ class TestGetConfig:
 
             with pytest.raises(ConnectionError, match="cache"):
                 await get_config(local_config_file, cache_file)
+
+
+class TestValidateConfig:
+    """Tests for config validation on startup."""
+
+    def test_validate_makemkvcon_path_exists(self, tmp_path):
+        """validate_config returns valid when makemkvcon_path exists."""
+        from amphigory_daemon.config import validate_config
+        from amphigory_daemon.models import DaemonConfig
+
+        # Create a fake makemkvcon executable
+        fake_makemkv = tmp_path / "makemkvcon"
+        fake_makemkv.touch()
+        fake_makemkv.chmod(0o755)
+
+        basedir = tmp_path / "data"
+        basedir.mkdir()
+
+        config = DaemonConfig(
+            webapp_url="http://localhost:8080",
+            webapp_basedir=str(basedir),
+            makemkvcon_path=str(fake_makemkv),
+        )
+
+        result = validate_config(config)
+        assert result.makemkvcon_valid is True
+
+    def test_validate_makemkvcon_path_missing(self, tmp_path):
+        """validate_config returns invalid when makemkvcon_path doesn't exist."""
+        from amphigory_daemon.config import validate_config
+        from amphigory_daemon.models import DaemonConfig
+
+        basedir = tmp_path / "data"
+        basedir.mkdir()
+
+        config = DaemonConfig(
+            webapp_url="http://localhost:8080",
+            webapp_basedir=str(basedir),
+            makemkvcon_path="/nonexistent/path/makemkvcon",
+        )
+
+        result = validate_config(config)
+        assert result.makemkvcon_valid is False
+        assert "not found" in result.makemkvcon_error.lower()
+
+    def test_validate_makemkvcon_path_none(self, tmp_path):
+        """validate_config returns invalid when makemkvcon_path is None."""
+        from amphigory_daemon.config import validate_config
+        from amphigory_daemon.models import DaemonConfig
+
+        basedir = tmp_path / "data"
+        basedir.mkdir()
+
+        config = DaemonConfig(
+            webapp_url="http://localhost:8080",
+            webapp_basedir=str(basedir),
+            makemkvcon_path=None,
+        )
+
+        result = validate_config(config)
+        assert result.makemkvcon_valid is False
+
+    def test_validate_webapp_basedir_exists(self, tmp_path):
+        """validate_config returns valid when webapp_basedir exists."""
+        from amphigory_daemon.config import validate_config
+        from amphigory_daemon.models import DaemonConfig
+
+        fake_makemkv = tmp_path / "makemkvcon"
+        fake_makemkv.touch()
+        fake_makemkv.chmod(0o755)
+
+        basedir = tmp_path / "data"
+        basedir.mkdir()
+
+        config = DaemonConfig(
+            webapp_url="http://localhost:8080",
+            webapp_basedir=str(basedir),
+            makemkvcon_path=str(fake_makemkv),
+        )
+
+        result = validate_config(config)
+        assert result.basedir_valid is True
+
+    def test_validate_webapp_basedir_missing(self, tmp_path):
+        """validate_config returns invalid when webapp_basedir doesn't exist."""
+        from amphigory_daemon.config import validate_config
+        from amphigory_daemon.models import DaemonConfig
+
+        fake_makemkv = tmp_path / "makemkvcon"
+        fake_makemkv.touch()
+        fake_makemkv.chmod(0o755)
+
+        config = DaemonConfig(
+            webapp_url="http://localhost:8080",
+            webapp_basedir="/nonexistent/path/data",
+            makemkvcon_path=str(fake_makemkv),
+        )
+
+        result = validate_config(config)
+        assert result.basedir_valid is False
+        assert "not found" in result.basedir_error.lower()
+
+    def test_validate_config_is_valid_when_all_pass(self, tmp_path):
+        """validate_config.is_valid returns True when all checks pass."""
+        from amphigory_daemon.config import validate_config
+        from amphigory_daemon.models import DaemonConfig
+
+        fake_makemkv = tmp_path / "makemkvcon"
+        fake_makemkv.touch()
+        fake_makemkv.chmod(0o755)
+
+        basedir = tmp_path / "data"
+        basedir.mkdir()
+
+        config = DaemonConfig(
+            webapp_url="http://localhost:8080",
+            webapp_basedir=str(basedir),
+            makemkvcon_path=str(fake_makemkv),
+        )
+
+        result = validate_config(config)
+        assert result.is_valid is True
+
+    def test_validate_config_is_invalid_when_any_fail(self, tmp_path):
+        """validate_config.is_valid returns False when any check fails."""
+        from amphigory_daemon.config import validate_config
+        from amphigory_daemon.models import DaemonConfig
+
+        basedir = tmp_path / "data"
+        basedir.mkdir()
+
+        config = DaemonConfig(
+            webapp_url="http://localhost:8080",
+            webapp_basedir=str(basedir),
+            makemkvcon_path="/nonexistent/makemkvcon",
+        )
+
+        result = validate_config(config)
+        assert result.is_valid is False
