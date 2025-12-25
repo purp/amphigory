@@ -201,32 +201,42 @@ class TestDiscScanResult:
 class TestDiscStatus:
     """Tests for GET /api/disc/status."""
 
-    def test_returns_disc_status_from_daemon(self, client):
-        """Returns disc status from connected daemon."""
+    @pytest.mark.asyncio
+    async def test_returns_disc_status_from_daemon(self, client):
+        """Returns disc status by querying daemon via WebSocket."""
         from amphigory.api.settings import _daemons, RegisteredDaemon
+        from amphigory.websocket import manager
         from datetime import datetime
+        from unittest.mock import AsyncMock, patch
 
-        # Register a daemon with disc info
+        # Register a daemon (but without disc state - that's now in daemon)
         _daemons["test-daemon"] = RegisteredDaemon(
             daemon_id="test-daemon",
             makemkvcon_path="/usr/local/bin/makemkvcon",
             webapp_basedir="/data",
             connected_at=datetime.now(),
             last_seen=datetime.now(),
-            disc_inserted=True,
-            disc_device="/dev/disk2",
-            disc_volume="MY_DISC",
         )
 
-        try:
-            response = client.get("/api/disc/status")
+        # Mock the WebSocket request to daemon
+        async def mock_request_from_daemon(daemon_id, method, params, timeout):
+            return {
+                "state": "disc_inserted",
+                "device": "/dev/disk2",
+                "disc_volume": "MY_DISC",
+            }
 
-            assert response.status_code == 200
-            data = response.json()
-            assert data["has_disc"] is True
-            assert data["volume_name"] == "MY_DISC"
-        finally:
-            del _daemons["test-daemon"]
+        with patch.object(manager, 'request_from_daemon', side_effect=mock_request_from_daemon):
+            try:
+                response = client.get("/api/disc/status")
+
+                assert response.status_code == 200
+                data = response.json()
+                assert data["has_disc"] is True
+                assert data["volume_name"] == "MY_DISC"
+                assert data["device_path"] == "/dev/disk2"
+            finally:
+                del _daemons["test-daemon"]
 
     def test_returns_no_disc_when_no_daemon(self, client):
         """Returns no disc when no daemon connected."""
@@ -238,6 +248,38 @@ class TestDiscStatus:
         assert response.status_code == 200
         data = response.json()
         assert data["has_disc"] is False
+
+    @pytest.mark.asyncio
+    async def test_returns_no_disc_when_daemon_query_fails(self, client):
+        """Returns no disc when daemon query times out or fails."""
+        from amphigory.api.settings import _daemons, RegisteredDaemon
+        from amphigory.websocket import manager
+        from datetime import datetime
+        from unittest.mock import patch
+        import asyncio
+
+        # Register a daemon
+        _daemons["test-daemon"] = RegisteredDaemon(
+            daemon_id="test-daemon",
+            makemkvcon_path="/usr/local/bin/makemkvcon",
+            webapp_basedir="/data",
+            connected_at=datetime.now(),
+            last_seen=datetime.now(),
+        )
+
+        # Mock the WebSocket request to timeout
+        async def mock_timeout(daemon_id, method, params, timeout):
+            raise asyncio.TimeoutError()
+
+        with patch.object(manager, 'request_from_daemon', side_effect=mock_timeout):
+            try:
+                response = client.get("/api/disc/status")
+
+                assert response.status_code == 200
+                data = response.json()
+                assert data["has_disc"] is False
+            finally:
+                del _daemons["test-daemon"]
 
 
 class TestScanCache:
@@ -383,7 +425,6 @@ class TestScanCache:
             webapp_basedir="/data",
             connected_at=datetime.now(),
             last_seen=datetime.now(),
-            disc_inserted=True,
         )
 
         try:
@@ -394,14 +435,9 @@ class TestScanCache:
 
             # The WebSocket handler should call clear_current_scan on eject
             # We'll verify this by simulating the eject logic
-            if "test-daemon" in _daemons:
-                _daemons["test-daemon"].disc_inserted = False
-                _daemons["test-daemon"].disc_device = None
-                _daemons["test-daemon"].disc_volume = None
-
-                # Import and call clear_current_scan as the WebSocket handler would
-                from amphigory.api.disc import clear_current_scan
-                clear_current_scan()
+            # Import and call clear_current_scan as the WebSocket handler would
+            from amphigory.api.disc import clear_current_scan
+            clear_current_scan()
 
             # Verify cache was cleared
             result = get_current_scan()
@@ -410,11 +446,14 @@ class TestScanCache:
             if "test-daemon" in _daemons:
                 del _daemons["test-daemon"]
 
-    def test_dashboard_html_shows_track_count_with_cached_scan(self, client):
+    @pytest.mark.asyncio
+    async def test_dashboard_html_shows_track_count_with_cached_scan(self, client):
         """Dashboard status HTML shows track count when scan is cached."""
         from amphigory.api.disc import set_current_scan
         from amphigory.api.settings import _daemons, RegisteredDaemon
+        from amphigory.websocket import manager
         from datetime import datetime
+        from unittest.mock import patch
 
         # Set up a cached scan
         scan_data = {
@@ -424,66 +463,81 @@ class TestScanCache:
         }
         set_current_scan(scan_data)
 
-        # Register a daemon with disc inserted
+        # Register a daemon
         _daemons["test-daemon"] = RegisteredDaemon(
             daemon_id="test-daemon",
             makemkvcon_path="/usr/local/bin/makemkvcon",
             webapp_basedir="/data",
             connected_at=datetime.now(),
             last_seen=datetime.now(),
-            disc_inserted=True,
-            disc_device="/dev/disk2",
-            disc_volume="MY_DISC",
         )
 
-        try:
-            response = client.get("/api/disc/status-html")
+        # Mock the WebSocket request to daemon
+        async def mock_request_from_daemon(daemon_id, method, params, timeout):
+            return {
+                "state": "disc_inserted",
+                "device": "/dev/disk2",
+                "disc_volume": "MY_DISC",
+            }
 
-            assert response.status_code == 200
-            html = response.text
+        with patch.object(manager, 'request_from_daemon', side_effect=mock_request_from_daemon):
+            try:
+                response = client.get("/api/disc/status-html")
 
-            # Should show track count
-            assert "3 tracks scanned" in html
-            # Should link to disc review page
-            assert 'href="/disc"' in html
-            assert "Review Tracks" in html
-        finally:
-            del _daemons["test-daemon"]
-            from amphigory.api.disc import clear_current_scan
-            clear_current_scan()
+                assert response.status_code == 200
+                html = response.text
 
-    def test_dashboard_html_shows_scan_button_without_cached_scan(self, client):
+                # Should show track count
+                assert "3 tracks scanned" in html
+                # Should link to disc review page
+                assert 'href="/disc"' in html
+                assert "Review Tracks" in html
+            finally:
+                del _daemons["test-daemon"]
+                from amphigory.api.disc import clear_current_scan
+                clear_current_scan()
+
+    @pytest.mark.asyncio
+    async def test_dashboard_html_shows_scan_button_without_cached_scan(self, client):
         """Dashboard status HTML shows scan button when no scan is cached."""
         from amphigory.api.disc import clear_current_scan
         from amphigory.api.settings import _daemons, RegisteredDaemon
+        from amphigory.websocket import manager
         from datetime import datetime
+        from unittest.mock import patch
 
         # Ensure no cached scan
         clear_current_scan()
 
-        # Register a daemon with disc inserted
+        # Register a daemon
         _daemons["test-daemon"] = RegisteredDaemon(
             daemon_id="test-daemon",
             makemkvcon_path="/usr/local/bin/makemkvcon",
             webapp_basedir="/data",
             connected_at=datetime.now(),
             last_seen=datetime.now(),
-            disc_inserted=True,
-            disc_device="/dev/disk2",
-            disc_volume="MY_DISC",
         )
 
-        try:
-            response = client.get("/api/disc/status-html")
+        # Mock the WebSocket request to daemon
+        async def mock_request_from_daemon(daemon_id, method, params, timeout):
+            return {
+                "state": "disc_inserted",
+                "device": "/dev/disk2",
+                "disc_volume": "MY_DISC",
+            }
 
-            assert response.status_code == 200
-            html = response.text
+        with patch.object(manager, 'request_from_daemon', side_effect=mock_request_from_daemon):
+            try:
+                response = client.get("/api/disc/status-html")
 
-            # Should show scan button, not track count
-            assert "Scan Disc" in html
-            assert "tracks scanned" not in html
-        finally:
-            del _daemons["test-daemon"]
+                assert response.status_code == 200
+                html = response.text
+
+                # Should show scan button, not track count
+                assert "Scan Disc" in html
+                assert "tracks scanned" not in html
+            finally:
+                del _daemons["test-daemon"]
 
 
 class TestFingerprintIntegration:
@@ -535,74 +589,79 @@ class TestFingerprintIntegration:
         assert response.status_code == 404
         assert "not found" in response.json()["detail"].lower()
 
-    def test_lookup_fingerprint_uses_current_disc_when_no_param(self, client, tasks_dir):
+    @pytest.mark.asyncio
+    async def test_lookup_fingerprint_uses_current_disc_when_no_param(self, client, tasks_dir):
         """Uses current disc's fingerprint when no parameter provided."""
         from amphigory.api.settings import _daemons, RegisteredDaemon
         from amphigory.database import Database
+        from amphigory.websocket import manager
         from datetime import datetime
-        import asyncio
+        from unittest.mock import patch
 
         # Initialize database
         db_path = tasks_dir.parent / "amphigory.db"
         db = Database(db_path)
-        asyncio.run(db.initialize())
+        await db.initialize()
 
         # Insert a known disc
-        async def setup():
-            async with db.connection() as conn:
-                await conn.execute(
-                    """INSERT INTO discs (title, fingerprint)
-                       VALUES (?, ?)""",
-                    ("Current Disc", "fp_current456"),
-                )
-                await conn.commit()
+        async with db.connection() as conn:
+            await conn.execute(
+                """INSERT INTO discs (title, fingerprint)
+                   VALUES (?, ?)""",
+                ("Current Disc", "fp_current456"),
+            )
+            await conn.commit()
 
-        asyncio.run(setup())
-
-        # Register daemon with disc that has a fingerprint
+        # Register daemon
         daemon = RegisteredDaemon(
             daemon_id="test-daemon",
             makemkvcon_path="/usr/local/bin/makemkvcon",
             webapp_basedir="/data",
             connected_at=datetime.now(),
             last_seen=datetime.now(),
-            disc_inserted=True,
         )
-        daemon.fingerprint = "fp_current456"
         _daemons["test-daemon"] = daemon
 
-        try:
-            # Lookup without providing fingerprint
-            response = client.get("/api/disc/lookup-fingerprint")
+        # Mock the WebSocket request to daemon to return fingerprint
+        async def mock_request_from_daemon(daemon_id, method, params, timeout):
+            return {
+                "state": "disc_inserted",
+                "fingerprint": "fp_current456",
+            }
 
-            assert response.status_code == 200
-            data = response.json()
-            assert data["title"] == "Current Disc"
-        finally:
-            del _daemons["test-daemon"]
+        with patch.object(manager, 'request_from_daemon', side_effect=mock_request_from_daemon):
+            try:
+                # Lookup without providing fingerprint
+                response = client.get("/api/disc/lookup-fingerprint")
 
-    def test_scan_result_saves_to_database_with_fingerprint(self, client, tasks_dir):
+                assert response.status_code == 200
+                data = response.json()
+                assert data["title"] == "Current Disc"
+            finally:
+                del _daemons["test-daemon"]
+
+    @pytest.mark.asyncio
+    async def test_scan_result_saves_to_database_with_fingerprint(self, client, tasks_dir):
         """Scan result is saved to database when fingerprint is available."""
         from amphigory.api.settings import _daemons, RegisteredDaemon
         from amphigory.database import Database
+        from amphigory.websocket import manager
         from datetime import datetime
-        import asyncio
+        from unittest.mock import patch
 
         # Initialize database
         db_path = tasks_dir.parent / "amphigory.db"
         db = Database(db_path)
-        asyncio.run(db.initialize())
+        await db.initialize()
 
-        # Register daemon with disc that has a fingerprint
+        # Register daemon
         daemon = RegisteredDaemon(
             daemon_id="test-daemon",
             makemkvcon_path="/usr/local/bin/makemkvcon",
             webapp_basedir="/data",
             connected_at=datetime.now(),
             last_seen=datetime.now(),
-            disc_inserted=True,
         )
-        daemon.fingerprint = "fp_saved789"
         _daemons["test-daemon"] = daemon
 
         # Create a completed scan task
@@ -619,13 +678,20 @@ class TestFingerprintIntegration:
                 "completed_at": "2024-01-15T10:30:00",
             }, f)
 
-        try:
-            # Request the scan result (should save to DB)
-            response = client.get("/api/disc/scan-result?task_id=scan-save-test")
-            assert response.status_code == 200
+        # Mock the WebSocket request to daemon to return fingerprint
+        async def mock_request_from_daemon(daemon_id, method, params, timeout):
+            return {
+                "state": "disc_inserted",
+                "fingerprint": "fp_saved789",
+            }
 
-            # Verify it was saved to database
-            async def verify():
+        with patch.object(manager, 'request_from_daemon', side_effect=mock_request_from_daemon):
+            try:
+                # Request the scan result (should save to DB)
+                response = client.get("/api/disc/scan-result?task_id=scan-save-test")
+                assert response.status_code == 200
+
+                # Verify it was saved to database
                 async with db.connection() as conn:
                     cursor = await conn.execute(
                         "SELECT * FROM discs WHERE fingerprint = ?",
@@ -637,55 +703,59 @@ class TestFingerprintIntegration:
                     assert row["scan_data"] is not None
                     scan_data = json.loads(row["scan_data"])
                     assert scan_data["disc_name"] == "SAVED_DISC"
+            finally:
+                del _daemons["test-daemon"]
 
-            asyncio.run(verify())
-        finally:
-            del _daemons["test-daemon"]
-
-    def test_status_html_shows_known_disc_with_fingerprint(self, client, tasks_dir):
+    @pytest.mark.asyncio
+    async def test_status_html_shows_known_disc_with_fingerprint(self, client, tasks_dir):
         """Status HTML shows 'Known disc' when fingerprint matches database."""
         from amphigory.api.settings import _daemons, RegisteredDaemon
         from amphigory.database import Database
+        from amphigory.websocket import manager
         from datetime import datetime
-        import asyncio
+        from unittest.mock import patch
 
         # Initialize database
         db_path = tasks_dir.parent / "amphigory.db"
         db = Database(db_path)
-        asyncio.run(db.initialize())
+        await db.initialize()
 
         # Insert a known disc
-        async def setup():
-            async with db.connection() as conn:
-                await conn.execute(
-                    """INSERT INTO discs (title, fingerprint)
-                       VALUES (?, ?)""",
-                    ("The Matrix", "fp_matrix999"),
-                )
-                await conn.commit()
+        async with db.connection() as conn:
+            await conn.execute(
+                """INSERT INTO discs (title, fingerprint)
+                   VALUES (?, ?)""",
+                ("The Matrix", "fp_matrix999"),
+            )
+            await conn.commit()
 
-        asyncio.run(setup())
-
-        # Register daemon with disc that has matching fingerprint
+        # Register daemon
         daemon = RegisteredDaemon(
             daemon_id="test-daemon",
             makemkvcon_path="/usr/local/bin/makemkvcon",
             webapp_basedir="/data",
             connected_at=datetime.now(),
             last_seen=datetime.now(),
-            disc_inserted=True,
-            disc_volume="MATRIX_DISC",
         )
-        daemon.fingerprint = "fp_matrix999"
         _daemons["test-daemon"] = daemon
 
-        try:
-            response = client.get("/api/disc/status-html")
+        # Mock the WebSocket request to daemon to return fingerprint
+        async def mock_request_from_daemon(daemon_id, method, params, timeout):
+            return {
+                "state": "disc_inserted",
+                "device": "/dev/disk2",
+                "disc_volume": "MATRIX_DISC",
+                "fingerprint": "fp_matrix999",
+            }
 
-            assert response.status_code == 200
-            html = response.text
+        with patch.object(manager, 'request_from_daemon', side_effect=mock_request_from_daemon):
+            try:
+                response = client.get("/api/disc/status-html")
 
-            # Should show known disc info
-            assert "Known disc: The Matrix" in html
-        finally:
-            del _daemons["test-daemon"]
+                assert response.status_code == 200
+                html = response.text
+
+                # Should show known disc info
+                assert "Known disc: The Matrix" in html
+            finally:
+                del _daemons["test-daemon"]

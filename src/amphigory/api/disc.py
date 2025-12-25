@@ -1,10 +1,11 @@
 """API endpoints for disc operations.
 
 These endpoints interact with the daemon via:
-1. Daemon-reported disc status (tracked in settings._daemons)
+1. WebSocket queries for real-time disc status
 2. Task queue (scan tasks written to queued/, results in complete/)
 """
 
+import asyncio
 import json
 import os
 from datetime import datetime
@@ -18,6 +19,7 @@ from pydantic import BaseModel
 from amphigory.api.common import generate_task_id
 from amphigory.api.settings import _daemons
 from amphigory.api import disc_repository
+from amphigory.websocket import manager
 
 router = APIRouter(prefix="/api/disc", tags=["disc"])
 
@@ -50,10 +52,16 @@ def get_tasks_dir() -> Path:
 
 
 async def _get_current_fingerprint() -> Optional[str]:
-    """Get fingerprint of currently inserted disc from daemon."""
-    for daemon in _daemons.values():
-        if daemon.disc_inserted:
-            return getattr(daemon, 'fingerprint', None)
+    """Get fingerprint of currently inserted disc by querying daemon."""
+    for daemon_id in _daemons.keys():
+        try:
+            drive_data = await manager.request_from_daemon(
+                daemon_id, "get_drive_status", {}, timeout=5.0
+            )
+            if drive_data.get("state") in ["disc_inserted", "scanning", "scanned", "ripping"]:
+                return drive_data.get("fingerprint")
+        except (KeyError, asyncio.TimeoutError):
+            pass
     return None
 
 
@@ -82,16 +90,23 @@ class ScanResultResponse(BaseModel):
 
 @router.get("/status")
 async def get_disc_status(request: Request) -> DiscStatusResponse:
-    """Check current disc status from connected daemons."""
-    # Find first daemon with disc inserted
-    for daemon in _daemons.values():
-        if daemon.disc_inserted:
-            return DiscStatusResponse(
-                has_disc=True,
-                device_path=daemon.disc_device,
-                volume_name=daemon.disc_volume,
-                daemon_id=daemon.daemon_id,
+    """Check current disc status by querying connected daemons via WebSocket."""
+    # Query each daemon for disc status
+    for daemon_id in _daemons.keys():
+        try:
+            drive_data = await manager.request_from_daemon(
+                daemon_id, "get_drive_status", {}, timeout=5.0
             )
+            if drive_data.get("state") in ["disc_inserted", "scanning", "scanned", "ripping"]:
+                return DiscStatusResponse(
+                    has_disc=True,
+                    device_path=drive_data.get("device"),
+                    volume_name=drive_data.get("disc_volume"),
+                    daemon_id=daemon_id,
+                )
+        except (KeyError, asyncio.TimeoutError):
+            # Daemon not available or timed out - try next one
+            pass
 
     return DiscStatusResponse(has_disc=False)
 
@@ -272,47 +287,56 @@ async def lookup_fingerprint(fingerprint: Optional[str] = None):
 @router.get("/status-html", response_class=HTMLResponse)
 async def get_disc_status_html(request: Request):
     """Return disc status as HTML fragment for HTMX."""
-    # Find first daemon with disc inserted
-    for daemon in _daemons.values():
-        if daemon.disc_inserted:
-            scan = get_current_scan()
+    # Query each daemon for disc status
+    for daemon_id in _daemons.keys():
+        try:
+            drive_data = await manager.request_from_daemon(
+                daemon_id, "get_drive_status", {}, timeout=5.0
+            )
+            if drive_data.get("state") in ["disc_inserted", "scanning", "scanned", "ripping"]:
+                scan = get_current_scan()
+                disc_volume = drive_data.get("disc_volume") or "Unknown"
+                disc_device = drive_data.get("device") or ""
 
-            # Check if disc has a fingerprint and if it's known in the database
-            fingerprint = getattr(daemon, 'fingerprint', None)
-            known_disc_info = None
-            if fingerprint:
-                known_disc_info = await disc_repository.get_disc_by_fingerprint(fingerprint)
+                # Check if disc has a fingerprint and if it's known in the database
+                fingerprint = drive_data.get("fingerprint")
+                known_disc_info = None
+                if fingerprint:
+                    known_disc_info = await disc_repository.get_disc_by_fingerprint(fingerprint)
 
-            if scan:
-                track_count = len(scan.get("tracks", []))
-                known_disc_html = ""
-                if known_disc_info:
-                    known_disc_html = f'<p class="status-detail">Known disc: {known_disc_info["title"]}</p>'
+                if scan:
+                    track_count = len(scan.get("tracks", []))
+                    known_disc_html = ""
+                    if known_disc_info:
+                        known_disc_html = f'<p class="status-detail">Known disc: {known_disc_info["title"]}</p>'
 
-                return f'''
-            <div class="disc-detected">
-                <p class="status-message status-success">Disc detected: {daemon.disc_volume or "Unknown"}</p>
-                <p class="status-detail">{daemon.daemon_id} {daemon.disc_device}</p>
-                {known_disc_html}
-                <p class="status-detail">{track_count} tracks scanned</p>
-                <a href="/disc" class="btn btn-primary">Review Tracks</a>
-            </div>
-            '''
-            else:
-                # No scan yet - show scan button
-                known_disc_html = ""
-                if known_disc_info:
-                    known_disc_html = f'<p class="status-detail">Known disc: {known_disc_info["title"]}</p>'
+                    return f'''
+                <div class="disc-detected">
+                    <p class="status-message status-success">Disc detected: {disc_volume}</p>
+                    <p class="status-detail">{daemon_id} {disc_device}</p>
+                    {known_disc_html}
+                    <p class="status-detail">{track_count} tracks scanned</p>
+                    <a href="/disc" class="btn btn-primary">Review Tracks</a>
+                </div>
+                '''
+                else:
+                    # No scan yet - show scan button
+                    known_disc_html = ""
+                    if known_disc_info:
+                        known_disc_html = f'<p class="status-detail">Known disc: {known_disc_info["title"]}</p>'
 
-                return f'''
-            <div class="disc-detected">
-                <p class="status-message status-success">Disc detected: {daemon.disc_volume or "Unknown"}</p>
-                <p class="status-detail">{daemon.daemon_id} {daemon.disc_device}</p>
-                {known_disc_html}
-                <button hx-post="/api/disc/scan" hx-target="#disc-info" class="btn btn-primary">
-                    Scan Disc
-                </button>
-            </div>
-            '''
+                    return f'''
+                <div class="disc-detected">
+                    <p class="status-message status-success">Disc detected: {disc_volume}</p>
+                    <p class="status-detail">{daemon_id} {disc_device}</p>
+                    {known_disc_html}
+                    <button hx-post="/api/disc/scan" hx-target="#disc-info" class="btn btn-primary">
+                        Scan Disc
+                    </button>
+                </div>
+                '''
+        except (KeyError, asyncio.TimeoutError):
+            # Daemon not available or timed out - try next one
+            pass
 
     return '<p class="status-message">No disc detected</p>'

@@ -44,9 +44,6 @@ def registered_daemon(client):
         webapp_basedir="/data",
         connected_at=now,
         last_seen=now,
-        disc_inserted=True,
-        disc_device="/dev/disk2",
-        disc_volume="MY_MOVIE_DISC",
     )
 
     yield daemon_id
@@ -58,14 +55,27 @@ def registered_daemon(client):
 class TestFullScanWorkflow:
     """Test complete scan workflow from disc detection to results."""
 
-    def test_disc_status_shows_daemon_disc(self, client, registered_daemon):
-        """Disc status reflects daemon's reported disc state."""
-        response = client.get("/api/disc/status")
-        assert response.status_code == 200
-        data = response.json()
-        assert data["has_disc"] is True
-        assert data["volume_name"] == "MY_MOVIE_DISC"
-        assert data["daemon_id"] == registered_daemon
+    @pytest.mark.asyncio
+    async def test_disc_status_shows_daemon_disc(self, client, registered_daemon):
+        """Disc status queries daemon via WebSocket."""
+        from amphigory.websocket import manager
+        from unittest.mock import patch
+
+        # Mock the WebSocket request to daemon
+        async def mock_request_from_daemon(daemon_id, method, params, timeout):
+            return {
+                "state": "disc_inserted",
+                "device": "/dev/disk2",
+                "disc_volume": "MY_MOVIE_DISC",
+            }
+
+        with patch.object(manager, 'request_from_daemon', side_effect=mock_request_from_daemon):
+            response = client.get("/api/disc/status")
+            assert response.status_code == 200
+            data = response.json()
+            assert data["has_disc"] is True
+            assert data["volume_name"] == "MY_MOVIE_DISC"
+            assert data["daemon_id"] == registered_daemon
 
     def test_scan_creates_task_for_daemon(self, client, tasks_dir, registered_daemon):
         """Scanning creates a task file for daemon to process."""
@@ -244,8 +254,8 @@ class TestWebSocketIntegration:
         import time
         time.sleep(0.1)
 
-    def test_disc_event_updates_daemon_status(self, client):
-        """Disc events update daemon's disc status."""
+    def test_disc_event_broadcasts_to_clients(self, client):
+        """Disc events are broadcast to browser clients (no local state)."""
         from amphigory.api.settings import _daemons
 
         with client.websocket_connect("/ws") as websocket:
@@ -267,7 +277,8 @@ class TestWebSocketIntegration:
             })
             time.sleep(0.1)
 
+            # Daemon should be registered but without disc state
             daemon = _daemons.get("disc-test-daemon")
             assert daemon is not None
-            assert daemon.disc_inserted is True
-            assert daemon.disc_volume == "TEST_DISC"
+            # Verify disc state is NOT stored locally (daemon is source of truth)
+            assert not hasattr(daemon, 'disc_inserted') or daemon.disc_inserted is False

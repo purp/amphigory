@@ -221,18 +221,12 @@ async def websocket_endpoint(websocket: WebSocket):
                         manager.register_daemon(daemon_id, websocket)
 
                 elif msg_type == "disc_event" and daemon_id:
-                    # Update disc status for daemon
+                    # Handle disc events (no local state - daemon is source of truth)
                     if daemon_id in _daemons:
                         event = message.get("event")
                         if event == "inserted":
-                            _daemons[daemon_id].disc_inserted = True
-                            _daemons[daemon_id].disc_device = message.get("device")
-                            _daemons[daemon_id].disc_volume = message.get("volume_name")
                             uvi_logger.info(f"Disc inserted: {message.get('volume_name')} at {message.get('device')} (daemon: {daemon_id})")
                         elif event == "ejected":
-                            _daemons[daemon_id].disc_inserted = False
-                            _daemons[daemon_id].disc_device = None
-                            _daemons[daemon_id].disc_volume = None
                             uvi_logger.info(f"Disc ejected (daemon: {daemon_id})")
                             # Clear cached scan result
                             from amphigory.api.disc import clear_current_scan

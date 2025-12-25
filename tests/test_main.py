@@ -145,15 +145,10 @@ class TestDiscEventBroadcast:
                 "volume_path": "/Volumes/TEST_DISC",
             }
 
-            # Manually execute the disc_event handler logic
+            # Manually execute the disc_event handler logic (no local state update)
             event = disc_event.get("event")
             if daemon_id in _daemons:
-                if event == "inserted":
-                    _daemons[daemon_id].disc_inserted = True
-                    _daemons[daemon_id].disc_device = disc_event.get("device")
-                    _daemons[daemon_id].disc_volume = disc_event.get("volume_name")
-
-                # This is what the handler should do
+                # This is what the handler should do - just broadcast, no state update
                 await manager.broadcast({
                     "type": "disc_event",
                     "event": event,
@@ -200,9 +195,6 @@ class TestDiscEventBroadcast:
             webapp_basedir="/data",
             connected_at=now,
             last_seen=now,
-            disc_inserted=True,
-            disc_device="/dev/disk2",
-            disc_volume="OLD_DISC",
         )
 
         # Mock the manager.broadcast method to capture calls
@@ -224,15 +216,10 @@ class TestDiscEventBroadcast:
                 "volume_path": None,
             }
 
-            # Manually execute the disc_event handler logic
+            # Manually execute the disc_event handler logic (no local state update)
             event = disc_event.get("event")
             if daemon_id in _daemons:
-                if event == "ejected":
-                    _daemons[daemon_id].disc_inserted = False
-                    _daemons[daemon_id].disc_device = None
-                    _daemons[daemon_id].disc_volume = None
-
-                # This is what the handler should do
+                # This is what the handler should do - just broadcast, no state update
                 await manager.broadcast({
                     "type": "disc_event",
                     "event": event,
