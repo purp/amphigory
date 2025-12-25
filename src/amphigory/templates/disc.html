@@ -19,8 +19,14 @@
         <h3>Disc Information</h3>
         <div class="form-row">
             <label for="disc-title">Title:</label>
-            <input type="text" id="disc-title" name="disc_title"
-                   class="setting-input" placeholder="Enter disc title">
+            <div style="display: flex; gap: 0.5rem; flex: 1;">
+                <input type="text" id="disc-title" name="disc_title"
+                       class="setting-input" placeholder="Enter disc title">
+                <button type="button" class="btn btn-small" onclick="searchTMDB()">Search TMDB</button>
+            </div>
+        </div>
+        <div id="tmdb-results" class="tmdb-results" style="display: none;">
+            <!-- TMDB results populated via JavaScript -->
         </div>
         <div class="form-row">
             <label for="disc-year">Year:</label>
@@ -409,6 +415,70 @@ async function submitRipTasks(event) {
         ripButton.disabled = false;
         ripButton.textContent = 'Process Selected Tracks';
     }
+}
+
+// Search TMDB for movie matches
+async function searchTMDB() {
+    const query = document.getElementById('disc-title').value;
+    const year = document.getElementById('disc-year').value;
+
+    if (!query) {
+        alert('Please enter a title to search');
+        return;
+    }
+
+    const resultsDiv = document.getElementById('tmdb-results');
+    resultsDiv.style.display = 'block';
+    resultsDiv.innerHTML = '<p class="text-muted" style="padding: 0.75rem;">Searching TMDB...</p>';
+
+    try {
+        let url = `/api/disc/search-tmdb?query=${encodeURIComponent(query)}`;
+        if (year) {
+            url += `&year=${encodeURIComponent(year)}`;
+        }
+
+        const response = await fetch(url);
+        if (!response.ok) {
+            throw new Error('Search failed');
+        }
+
+        const data = await response.json();
+        displayTMDBResults(data.results);
+    } catch (error) {
+        console.error('Error searching TMDB:', error);
+        resultsDiv.innerHTML = '<p class="error" style="padding: 0.75rem;">Error searching TMDB. Check if API key is configured.</p>';
+    }
+}
+
+// Display TMDB search results
+function displayTMDBResults(results) {
+    const resultsDiv = document.getElementById('tmdb-results');
+
+    if (!results || results.length === 0) {
+        resultsDiv.innerHTML = '<p class="text-muted" style="padding: 0.75rem;">No results found</p>';
+        return;
+    }
+
+    resultsDiv.innerHTML = results.map(movie => `
+        <div class="tmdb-result" onclick="selectTMDBResult(${movie.id}, '${movie.title.replace(/'/g, "\\'")}', ${movie.year})">
+            <strong>${movie.title}</strong> ${movie.year ? `(${movie.year})` : ''}
+            ${movie.overview ? `<br><span style="font-size: 0.9em; color: var(--text-muted);">${movie.overview.substring(0, 150)}${movie.overview.length > 150 ? '...' : ''}</span>` : ''}
+        </div>
+    `).join('');
+}
+
+// Select a TMDB result and fill in the form
+function selectTMDBResult(tmdbId, title, year) {
+    document.getElementById('disc-title').value = title;
+    if (year) {
+        document.getElementById('disc-year').value = year;
+    }
+
+    // Hide results
+    document.getElementById('tmdb-results').style.display = 'none';
+
+    // Store TMDB ID for later use (e.g., fetching more metadata)
+    window.selectedTMDBId = tmdbId;
 }
 
 // Initialize on page load

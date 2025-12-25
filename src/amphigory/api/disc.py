@@ -20,6 +20,7 @@ from amphigory.api.common import generate_task_id
 from amphigory.api.settings import _daemons
 from amphigory.api import disc_repository
 from amphigory.websocket import manager
+from amphigory.tmdb import search_movies
 
 router = APIRouter(prefix="/api/disc", tags=["disc"])
 
@@ -342,3 +343,10 @@ async def get_disc_status_html(request: Request):
             pass
 
     return '<p class="status-message">No disc detected</p>'
+
+
+@router.get("/search-tmdb")
+async def search_tmdb(query: str, year: Optional[int] = None):
+    """Search TMDB for movie matches."""
+    results = await search_movies(query, year)
+    return {"results": results}
