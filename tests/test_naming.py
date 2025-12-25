@@ -97,7 +97,7 @@ class TestGenerateTrackFilename:
         assert filename == 'Movie The Sequel (2020).mkv'
 
     def test_alternate_language_naming(self):
-        """Test alternate language naming: 'Title (Year) - Language.mkv'."""
+        """Test alternate language naming: 'Title (Year) {lang-Language}.mkv'."""
         filename = generate_track_filename(
             track_type='main_feature',
             movie_title='The Matrix',
@@ -105,7 +105,7 @@ class TestGenerateTrackFilename:
             track_name='French Version',
             language='fr'
         )
-        assert filename == 'The Matrix (1999) - fr.mkv'
+        assert filename == 'The Matrix (1999) {lang-fr}.mkv'
 
     def test_english_variants_no_language_suffix(self):
         """Test that en, en-us, and english variants don't get language suffix."""
@@ -474,3 +474,81 @@ class TestGenerateOutputDirectory:
                 year=1999,
                 track_type='main_feature'
             )
+
+
+class TestGenerateTrackFilenameWithImdb:
+    """Test track filename generation with IMDB tags."""
+
+    def test_main_feature_with_imdb(self):
+        """Main feature includes IMDB tag."""
+        result = generate_track_filename(
+            track_type="main_feature",
+            movie_title="Coco",
+            year=2017,
+            track_name="Main Feature",
+            language="en",
+            imdb_id="tt2380307",
+        )
+        assert result == "Coco (2017) {imdb-tt2380307}.mkv"
+
+    def test_alternate_language_with_imdb(self):
+        """Alternate language version includes both IMDB and language tag."""
+        result = generate_track_filename(
+            track_type="main_feature",
+            movie_title="Coco",
+            year=2017,
+            track_name="Spanish Version",
+            language="es",
+            imdb_id="tt2380307",
+        )
+        assert result == "Coco (2017) {imdb-tt2380307} {lang-es}.mkv"
+
+    def test_unknown_alternate_language(self):
+        """Unknown alternate language uses alt1, alt2, etc."""
+        result = generate_track_filename(
+            track_type="main_feature",
+            movie_title="Coco",
+            year=2017,
+            track_name="Alternate Version",
+            language="alt1",
+            imdb_id="tt2380307",
+        )
+        assert result == "Coco (2017) {imdb-tt2380307} {lang-alt1}.mkv"
+
+    def test_extras_dont_get_imdb_tag(self):
+        """Extras use simple naming without IMDB."""
+        result = generate_track_filename(
+            track_type="trailers",
+            movie_title="Coco",
+            year=2017,
+            track_name="Trailer 1",
+            language="en",
+            imdb_id="tt2380307",
+        )
+        assert result == "Trailer 1-trailer.mkv"
+
+
+class TestGenerateOutputDirectoryWithImdb:
+    """Test output directory generation with IMDB tags."""
+
+    def test_movie_dir_with_imdb(self):
+        """Movie directory includes IMDB tag."""
+        result = generate_output_directory(
+            base_path="/media/movies",
+            movie_title="Coco",
+            year=2017,
+            track_type="main_feature",
+            imdb_id="tt2380307",
+        )
+        assert result == Path("/media/movies/Coco (2017) {imdb-tt2380307}")
+
+    def test_extras_dir_with_imdb(self):
+        """Extras directory includes IMDB in parent."""
+        result = generate_output_directory(
+            base_path="/media/movies",
+            movie_title="Coco",
+            year=2017,
+            track_type="featurettes",
+            imdb_id="tt2380307",
+        )
+        assert result == Path("/media/movies/Coco (2017) {imdb-tt2380307}/Featurettes")

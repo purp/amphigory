@@ -72,7 +72,8 @@ def generate_track_filename(
     movie_title: str,
     year: int,
     track_name: str,
-    language: str
+    language: str,
+    imdb_id: str = ""
 ) -> str:
     """Generate a Plex-compatible filename for a track.
 
@@ -82,6 +83,7 @@ def generate_track_filename(
         year: The movie release year
         track_name: The name of the track
         language: Language code (e.g., 'en', 'fr')
+        imdb_id: IMDB ID (e.g., 'tt2380307') - optional
 
     Returns:
         Plex-compatible filename with .mkv extension
@@ -91,7 +93,8 @@ def generate_track_filename(
 
     Examples:
         Main feature: "The Matrix (1999).mkv"
-        Alternate language: "The Matrix (1999) - fr.mkv"
+        Main feature with IMDB: "The Matrix (1999) {imdb-tt2380307}.mkv"
+        Alternate language: "The Matrix (1999) {imdb-tt2380307} {lang-fr}.mkv"
         Extras: "Making Of-featurette.mkv"
     """
     # Validate year is reasonable
@@ -104,13 +107,20 @@ def generate_track_filename(
 
     # Main feature naming
     if track_type == 'main_feature':
+        # Build base name: Title (Year)
+        base_name = f"{sanitized_title} ({year})"
+
+        # Add IMDB tag if provided
+        if imdb_id:
+            base_name += f" {{imdb-{imdb_id}}}"
+
         # Check if this is an alternate language version (not en/en-us/english)
         if language and language.lower() not in ('en', 'en-us', 'english'):
-            return f"{sanitized_title} ({year}) - {language}.mkv"
+            return f"{base_name} {{lang-{language}}}.mkv"
         else:
-            return f"{sanitized_title} ({year}).mkv"
+            return f"{base_name}.mkv"
 
-    # Extras naming: "Track Name-suffix.mkv"
+    # Extras naming: "Track Name-suffix.mkv" (no IMDB tag)
     suffix = PLEX_SUFFIXES.get(track_type, '-other')
     return f"{sanitized_track_name}{suffix}.mkv"
 
@@ -119,7 +129,8 @@ def generate_output_directory(
     base_path: Union[str, Path],
     movie_title: str,
     year: int,
-    track_type: str
+    track_type: str,
+    imdb_id: str = ""
 ) -> Path:
     """Generate output directory path following Plex conventions.
 
@@ -128,6 +139,7 @@ def generate_output_directory(
         movie_title: The movie title
         year: The movie release year
         track_type: Type of track (main_feature, trailers, featurettes, etc.)
+        imdb_id: IMDB ID (e.g., 'tt2380307') - optional
 
     Returns:
         Path object for the output directory
@@ -137,7 +149,9 @@ def generate_output_directory(
 
     Examples:
         Main feature: "/media/movies/The Matrix (1999)"
+        Main feature with IMDB: "/media/movies/The Matrix (1999) {imdb-tt2380307}"
         Extras: "/media/movies/The Matrix (1999)/Behind The Scenes"
+        Extras with IMDB: "/media/movies/The Matrix (1999) {imdb-tt2380307}/Behind The Scenes"
     """
     # Convert base_path to Path if it's a string
     base = Path(base_path)
@@ -149,8 +163,12 @@ def generate_output_directory(
     # Sanitize movie title (will raise ValueError if empty/whitespace-only)
     sanitized_title = sanitize_filename(movie_title)
 
-    # Movie directory: "Title (Year)"
-    movie_dir = base / f"{sanitized_title} ({year})"
+    # Movie directory: "Title (Year)" with optional IMDB tag
+    dir_name = f"{sanitized_title} ({year})"
+    if imdb_id:
+        dir_name += f" {{imdb-{imdb_id}}}"
+
+    movie_dir = base / dir_name
 
     # Main feature goes in the movie directory
     if track_type == 'main_feature':
