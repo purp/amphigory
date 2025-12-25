@@ -94,8 +94,11 @@ class Database:
         columns = {row[1] for row in await cursor.fetchall()}
 
         # Migration: Add fingerprint, scan_data, scanned_at columns (Task 6)
+        # Note: SQLite doesn't allow ADD COLUMN with UNIQUE constraint,
+        # so we add the column first, then create a unique index
         if "fingerprint" not in columns:
-            await conn.execute("ALTER TABLE discs ADD COLUMN fingerprint TEXT UNIQUE")
+            await conn.execute("ALTER TABLE discs ADD COLUMN fingerprint TEXT")
+            await conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_discs_fingerprint ON discs(fingerprint)")
         if "scan_data" not in columns:
             await conn.execute("ALTER TABLE discs ADD COLUMN scan_data TEXT")
         if "scanned_at" not in columns:
