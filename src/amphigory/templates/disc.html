@@ -55,6 +55,7 @@
                         <th class="col-size">Size</th>
                         <th class="col-resolution">Resolution</th>
                         <th class="col-type">Type</th>
+                        <th class="col-name">Track Name</th>
                         <th class="col-audio">Audio</th>
                         <th class="col-subs">Subs</th>
                     </tr>
@@ -337,6 +338,12 @@ function displayScanResult(result) {
                     ${formatClassification(track.classification)}
                 </span>
             </td>
+            <td class="col-name">
+                <input type="text" name="track_name_${track.number || index}"
+                       class="track-name-input"
+                       placeholder="${getDefaultTrackName(track)}"
+                       value="${track.name || ''}">
+            </td>
             <td class="col-audio">${track.audio_tracks || track.audio_streams?.length || 0}</td>
             <td class="col-subs">${track.subtitle_tracks || track.subtitle_streams?.length || 0}</td>
         </tr>
@@ -360,6 +367,30 @@ function formatClassification(classification) {
         'unknown': 'Unknown',
     };
     return labels[classification] || classification || 'Unknown';
+}
+
+function getDefaultTrackName(track) {
+    const classification = track.classification || 'unknown';
+
+    if (classification === 'main_feature') {
+        return 'Main Feature';
+    } else if (classification === 'trailers') {
+        return 'Trailer';
+    } else if (classification === 'featurettes') {
+        return 'Featurette';
+    } else if (classification === 'behind_the_scenes') {
+        return 'Behind The Scenes';
+    } else if (classification === 'deleted_scenes') {
+        return 'Deleted Scene';
+    } else if (classification === 'interviews') {
+        return 'Interview';
+    } else if (classification === 'scenes') {
+        return 'Scene';
+    } else if (classification === 'shorts') {
+        return 'Short';
+    } else {
+        return 'Extra';
+    }
 }
 
 function selectAll() {
