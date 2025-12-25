@@ -3,7 +3,7 @@
 Items deferred to focus on getting to a fully functional system first.
 
 ## Drive operations
-- [ ] Disable "Scan Disk" button (and other drive action buttons) if the drive is currently busy
+- [ ] Disable "Scan Disc" button (and other drive action buttons) if the drive is currently busy
 - [ ] Provide a way to stop the currently running disk activity (scanning, ripping)
 - [ ] Recognize when a scan has taken too long and stop it
 
@@ -50,6 +50,8 @@ Items deferred to focus on getting to a fully functional system first.
 - [ ] Track previews: grab 60 seconds of a track for quick preview transcoding
 - [ ] Reinstate the app-level "Daemon Connected" badge in the webapp and use broadcast to keep all browser clients up-to-date
 - [ ] Upload pics of media case back to get more info (barcode, copyright dates, formats, extra features, etc.) to aid in disc and track identification
+- [ ] Connected Daemons "Last seen" time counts up in most significant relative unit until reset (e.g. "Last seen: 12s ago" counts up in seconds until 1 minute, then shows "Last seen: 1m ago" and counts up in minutes until 1 hour, etc.)
+- [ ] Mark disc in library as one that we want to upgrade media, and add a "Shopping List" page that shows what we want upgrades to
 
 ## Multi-User / Multi-Drive Configuration
 
