@@ -67,7 +67,7 @@ class AudioStream:
     """Audio stream information from a scanned track."""
     language: str
     codec: str
-    channels: int
+    channels: Union[int, str]
 
 
 @dataclass
@@ -87,6 +87,9 @@ class ScannedTrack:
     resolution: str
     audio_streams: list[AudioStream]
     subtitle_streams: list[SubtitleStream]
+    chapter_count: int = 0
+    segment_map: str = ""
+    is_main_feature_playlist: bool = False
 
 
 @dataclass
@@ -225,6 +228,9 @@ def response_to_dict(response: TaskResponse) -> dict:
                             {"language": s.language, "format": s.format}
                             for s in t.subtitle_streams
                         ],
+                        "chapter_count": t.chapter_count,
+                        "segment_map": t.segment_map,
+                        "is_main_feature_playlist": t.is_main_feature_playlist,
                     }
                     for t in response.result.tracks
                 ],

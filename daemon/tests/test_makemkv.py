@@ -157,3 +157,59 @@ class TestBuildRipCommand:
             "0",
             "/media/ripped/Movie",
         ]
+
+
+class TestEnhancedParsing:
+    def test_parse_chapter_count(self):
+        """Parser extracts chapter count from TINFO field 8."""
+        from amphigory_daemon.makemkv import parse_scan_output
+
+        output = '''TINFO:0,2,0,"Title #1"
+TINFO:0,9,0,"1:45:30"
+TINFO:0,8,0,"24"
+'''
+        result = parse_scan_output(output)
+        assert result.tracks[0].chapter_count == 24
+
+    def test_parse_segment_map(self):
+        """Parser extracts segment map from TINFO field 26."""
+        from amphigory_daemon.makemkv import parse_scan_output
+
+        output = '''TINFO:0,2,0,"Title #1"
+TINFO:0,9,0,"1:45:30"
+TINFO:0,26,0,"1,2,3,4,5"
+'''
+        result = parse_scan_output(output)
+        assert result.tracks[0].segment_map == "1,2,3,4,5"
+
+    def test_detect_fpl_main_feature(self):
+        """Parser detects MakeMKV's FPL_MainFeature marker."""
+        from amphigory_daemon.makemkv import parse_scan_output
+
+        output = '''TINFO:0,2,0,"Title #1"
+TINFO:1,2,0,"Title #2 (FPL_MainFeature)"
+TINFO:2,2,0,"Title #3"
+'''
+        result = parse_scan_output(output)
+        assert result.tracks[0].is_main_feature_playlist is False
+        assert result.tracks[1].is_main_feature_playlist is True
+        assert result.tracks[2].is_main_feature_playlist is False
+
+    def test_parse_audio_tracks_from_sinfo(self):
+        """Parser extracts audio track details from SINFO lines."""
+        from amphigory_daemon.makemkv import parse_scan_output
+
+        output = '''TINFO:0,2,0,"Title #1"
+SINFO:0,1,1,0,"TrueHD"
+SINFO:0,1,3,0,"English"
+SINFO:0,1,4,0,"7.1"
+SINFO:0,2,1,0,"AC3"
+SINFO:0,2,3,0,"French"
+SINFO:0,2,4,0,"5.1"
+'''
+        result = parse_scan_output(output)
+        audio = result.tracks[0].audio_streams
+        assert len(audio) == 2
+        assert audio[0].codec == "TrueHD"
+        assert audio[0].language == "English"
+        assert audio[0].channels == "7.1"

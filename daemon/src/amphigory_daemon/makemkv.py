@@ -115,14 +115,23 @@ def parse_scan_output(output: str) -> ScanResult:
                         "resolution": "",
                         "audio_streams": [],
                         "subtitle_streams": [],
+                        "chapter_count": 0,
+                        "segment_map": "",
+                        "is_main_feature_playlist": False,
                     }
 
-                if field_id == 9:  # Duration
+                if field_id == 2:  # Title name - check for FPL_MainFeature
+                    if "(FPL_MainFeature)" in value:
+                        tracks[track_num]["is_main_feature_playlist"] = True
+                elif field_id == 9:  # Duration
                     tracks[track_num]["duration"] = value
                 elif field_id == 11:  # Size in bytes
                     tracks[track_num]["size_bytes"] = int(value)
-                elif field_id == 8:  # Chapters
+                elif field_id == 8:  # Chapter count
                     tracks[track_num]["chapters"] = int(value)
+                    tracks[track_num]["chapter_count"] = int(value)
+                elif field_id == 26:  # Segment map
+                    tracks[track_num]["segment_map"] = value
 
         # SINFO:track_num,stream_num,field_id,code,value
         if line.startswith("SINFO:"):
@@ -139,7 +148,7 @@ def parse_scan_output(output: str) -> ScanResult:
 
                 track = tracks[track_num]
 
-                # Field 1 = stream type (6201=Video, 6202=Audio, 6203=Subtitle)
+                # Field 1 can be stream type code OR codec name (string)
                 if field_id == 1:
                     if code == 6201:  # Video
                         pass  # We handle video fields separately
@@ -157,20 +166,56 @@ def parse_scan_output(output: str) -> ScanResult:
                                 "language": "",
                                 "format": "",
                             })
+                    else:
+                        # Field 1 with code 0 may contain codec as string
+                        while len(track["audio_streams"]) <= stream_num:
+                            track["audio_streams"].append({
+                                "language": "",
+                                "codec": "",
+                                "channels": 0,
+                            })
+                        if stream_num < len(track["audio_streams"]):
+                            track["audio_streams"][stream_num]["codec"] = value
 
                 # Field 19 = resolution (for video)
                 elif field_id == 19:
                     track["resolution"] = value
 
-                # Field 3 = language code
+                # Field 3 = language code or language name
                 elif field_id == 3:
-                    # Need to figure out which stream type
+                    # Check if this is for an audio stream
+                    # Only create audio stream if we haven't created subtitle streams yet
+                    # or if the stream number is clearly within audio range
                     if stream_num < len(track["audio_streams"]):
                         track["audio_streams"][stream_num]["language"] = value
-                    elif stream_num - len(track["audio_streams"]) < len(track["subtitle_streams"]):
+                    elif len(track["subtitle_streams"]) > 0:
+                        # Likely a subtitle stream
                         idx = stream_num - len(track["audio_streams"])
                         if idx < len(track["subtitle_streams"]):
                             track["subtitle_streams"][idx]["language"] = value
+                    else:
+                        # Ambiguous - create as audio stream
+                        while len(track["audio_streams"]) <= stream_num:
+                            track["audio_streams"].append({
+                                "language": "",
+                                "codec": "",
+                                "channels": 0,
+                            })
+                        track["audio_streams"][stream_num]["language"] = value
+
+                # Field 4 = channels (audio) or language name - can be string like "7.1" or int
+                elif field_id == 4:
+                    # Only apply to existing audio streams (don't create new ones)
+                    if stream_num < len(track["audio_streams"]):
+                        # Keep as string if it contains decimal, otherwise try to parse as int
+                        if "." in value:
+                            track["audio_streams"][stream_num]["channels"] = value
+                        else:
+                            try:
+                                track["audio_streams"][stream_num]["channels"] = int(value)
+                            except ValueError:
+                                # Could be a language name, ignore for now
+                                pass
 
                 # Field 13 = codec name (audio)
                 elif field_id == 13:
@@ -232,6 +277,9 @@ def parse_scan_output(output: str) -> ScanResult:
                 for s in t["subtitle_streams"]
                 if s["language"] or s["format"]  # Filter empty
             ],
+            chapter_count=t["chapter_count"],
+            segment_map=t["segment_map"],
+            is_main_feature_playlist=t["is_main_feature_playlist"],
         ))
 
     return ScanResult(
