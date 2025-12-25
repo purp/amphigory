@@ -248,6 +248,17 @@ class WebAppClient:
         self._websocket: Optional[websockets.WebSocketClientProtocol] = None
         self._connected = False
         self._receive_task: Optional[asyncio.Task] = None
+        self._request_handlers: dict[str, Callable] = {}
+
+    def on_request(self, method: str, handler: Callable) -> None:
+        """
+        Register a handler for incoming requests.
+
+        Args:
+            method: Request method name (e.g., "get_drive_status")
+            handler: Async function that takes params dict and returns result dict
+        """
+        self._request_handlers[method] = handler
 
     async def connect(self) -> None:
         """Connect to the webapp WebSocket endpoint."""
@@ -256,12 +267,53 @@ class WebAppClient:
         # Start background task to detect disconnection
         self._receive_task = asyncio.create_task(self._receive_loop())
 
+    async def _handle_message(self, data: dict) -> None:
+        """Handle an incoming message from webapp."""
+        msg_type = data.get("type")
+
+        if msg_type == "request":
+            await self._handle_request(data)
+
+    async def _handle_request(self, data: dict) -> None:
+        """Handle an incoming request and send response."""
+        request_id = data.get("request_id")
+        method = data.get("method")
+        params = data.get("params", {})
+
+        handler = self._request_handlers.get(method)
+
+        if handler is None:
+            response = {
+                "type": "response",
+                "request_id": request_id,
+                "error": {"code": "unknown_method", "message": f"Unknown method: {method}"},
+            }
+        else:
+            try:
+                result = await handler(params)
+                response = {
+                    "type": "response",
+                    "request_id": request_id,
+                    "result": result,
+                }
+            except Exception as e:
+                response = {
+                    "type": "response",
+                    "request_id": request_id,
+                    "error": {"code": "handler_error", "message": str(e)},
+                }
+
+        await self._send(response)
+
     async def _receive_loop(self) -> None:
         """Background loop to receive messages and detect disconnection."""
         try:
             async for message in self._websocket:
-                # Could handle incoming messages here if needed
-                pass
+                try:
+                    data = json.loads(message)
+                    await self._handle_message(data)
+                except json.JSONDecodeError:
+                    pass
         except websockets.exceptions.ConnectionClosed:
             pass
         finally:

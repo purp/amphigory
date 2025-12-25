@@ -507,3 +507,106 @@ class TestHeartbeatLoop:
             await client.disconnect()
 
         # Test passes if no exception raised
+
+
+class TestWebAppClientRequestHandling:
+    """Tests for handling requests from webapp."""
+
+    @pytest.mark.asyncio
+    async def test_registers_request_handler(self):
+        """Can register a handler for incoming requests."""
+        from amphigory_daemon.websocket import WebAppClient
+
+        client = WebAppClient("ws://localhost:8000/ws")
+
+        handler = AsyncMock(return_value={"status": "ok"})
+        client.on_request("get_drive_status", handler)
+
+        assert "get_drive_status" in client._request_handlers
+
+    @pytest.mark.asyncio
+    async def test_handles_request_and_sends_response(self):
+        """Handles request message and sends response."""
+        from amphigory_daemon.websocket import WebAppClient
+
+        client = WebAppClient("ws://localhost:8000/ws")
+        client._websocket = AsyncMock()
+        client._connected = True
+
+        # Register handler
+        async def handle_get_status(params):
+            return {"drive_id": "test:rdisk0", "state": "empty"}
+
+        client.on_request("get_drive_status", handle_get_status)
+
+        # Simulate incoming request
+        request = {
+            "type": "request",
+            "request_id": "req-123",
+            "method": "get_drive_status",
+            "params": {},
+        }
+
+        await client._handle_message(request)
+
+        # Verify response was sent
+        client._websocket.send.assert_called_once()
+        response = json.loads(client._websocket.send.call_args[0][0])
+        assert response["type"] == "response"
+        assert response["request_id"] == "req-123"
+        assert response["result"]["drive_id"] == "test:rdisk0"
+
+    @pytest.mark.asyncio
+    async def test_handles_unknown_method(self):
+        """Sends error response for unknown method."""
+        from amphigory_daemon.websocket import WebAppClient
+
+        client = WebAppClient("ws://localhost:8000/ws")
+        client._websocket = AsyncMock()
+        client._connected = True
+
+        request = {
+            "type": "request",
+            "request_id": "req-456",
+            "method": "unknown_method",
+            "params": {},
+        }
+
+        await client._handle_message(request)
+
+        # Verify error response was sent
+        client._websocket.send.assert_called_once()
+        response = json.loads(client._websocket.send.call_args[0][0])
+        assert response["type"] == "response"
+        assert response["request_id"] == "req-456"
+        assert "error" in response
+
+    @pytest.mark.asyncio
+    async def test_handles_handler_exception(self):
+        """Sends error response if handler raises exception."""
+        from amphigory_daemon.websocket import WebAppClient
+
+        client = WebAppClient("ws://localhost:8000/ws")
+        client._websocket = AsyncMock()
+        client._connected = True
+
+        async def bad_handler(params):
+            raise ValueError("Something went wrong")
+
+        client.on_request("bad_method", bad_handler)
+
+        request = {
+            "type": "request",
+            "request_id": "req-789",
+            "method": "bad_method",
+            "params": {},
+        }
+
+        await client._handle_message(request)
+
+        # Verify error response was sent
+        response = json.loads(client._websocket.send.call_args[0][0])
+        assert response["type"] == "response"
+        assert response["request_id"] == "req-789"
+        assert "error" in response
+        assert "Something went wrong" in response["error"]["message"]
