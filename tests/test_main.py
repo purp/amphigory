@@ -260,3 +260,157 @@ class TestDiscEventBroadcast:
             # Clean up
             if daemon_id in _daemons:
                 del _daemons[daemon_id]
+
+
+class TestWebSocketDaemonTracking:
+    """Tests for tracking daemon WebSocket connections."""
+
+    def test_manager_tracks_daemon_connections(self, test_client):
+        """ConnectionManager tracks daemon_id to WebSocket mapping."""
+        from amphigory.websocket import manager
+
+        # Initially no daemons tracked
+        assert len(manager._daemon_connections) == 0
+
+    @pytest.mark.asyncio
+    async def test_send_to_daemon_raises_when_not_connected(self):
+        """send_to_daemon raises if daemon not connected."""
+        from amphigory.websocket import manager
+        import pytest
+
+        with pytest.raises(KeyError, match="not connected"):
+            await manager.send_to_daemon("nonexistent-daemon", {"type": "test"})
+
+
+class TestWebSocketRequests:
+    """Tests for webapp sending requests to daemon."""
+
+    @pytest.mark.asyncio
+    async def test_manager_can_register_daemon_connection(self):
+        """Can register a daemon's WebSocket connection."""
+        from amphigory.websocket import manager
+        from unittest.mock import AsyncMock
+
+        mock_ws = AsyncMock()
+
+        manager.register_daemon("test-daemon", mock_ws)
+
+        assert "test-daemon" in manager._daemon_connections
+        assert manager._daemon_connections["test-daemon"] == mock_ws
+
+        # Cleanup
+        manager.unregister_daemon("test-daemon")
+
+    @pytest.mark.asyncio
+    async def test_manager_can_send_to_specific_daemon(self):
+        """Can send a message to a specific daemon."""
+        from amphigory.websocket import manager
+        from unittest.mock import AsyncMock
+        import json
+
+        mock_ws = AsyncMock()
+        manager.register_daemon("test-daemon", mock_ws)
+
+        await manager.send_to_daemon("test-daemon", {"type": "request", "data": "test"})
+
+        mock_ws.send_text.assert_called_once()
+        sent_msg = json.loads(mock_ws.send_text.call_args[0][0])
+        assert sent_msg["type"] == "request"
+
+        # Cleanup
+        manager.unregister_daemon("test-daemon")
+
+    @pytest.mark.asyncio
+    async def test_unregister_daemon_removes_connection(self):
+        """unregister_daemon removes the daemon from tracking."""
+        from amphigory.websocket import manager
+        from unittest.mock import AsyncMock
+
+        mock_ws = AsyncMock()
+        manager.register_daemon("test-daemon", mock_ws)
+        assert "test-daemon" in manager._daemon_connections
+
+        manager.unregister_daemon("test-daemon")
+
+        assert "test-daemon" not in manager._daemon_connections
+
+    @pytest.mark.asyncio
+    async def test_send_to_daemon_raises_when_not_connected(self):
+        """send_to_daemon raises KeyError for unconnected daemon."""
+        from amphigory.websocket import manager
+
+        # Ensure daemon not registered
+        manager.unregister_daemon("nonexistent-daemon")
+
+        with pytest.raises(KeyError):
+            await manager.send_to_daemon("nonexistent-daemon", {"type": "test"})
+
+    @pytest.mark.asyncio
+    async def test_handle_response_completes_pending_request(self):
+        """handle_response completes pending request future."""
+        from amphigory.websocket import manager
+        import asyncio
+
+        # Create a pending request
+        request_id = "test-request-123"
+        loop = asyncio.get_event_loop()
+        future = loop.create_future()
+        manager._pending_requests[request_id] = future
+
+        # Handle response
+        response_data = {
+            "type": "response",
+            "request_id": request_id,
+            "result": {"status": "ok", "data": "test"},
+        }
+        handled = manager.handle_response(response_data)
+
+        assert handled is True
+        assert future.done()
+        assert future.result() == {"status": "ok", "data": "test"}
+
+        # Cleanup
+        manager._pending_requests.pop(request_id, None)
+
+    @pytest.mark.asyncio
+    async def test_handle_response_sets_exception_on_error(self):
+        """handle_response sets exception for error responses."""
+        from amphigory.websocket import manager
+        import asyncio
+
+        # Create a pending request
+        request_id = "test-request-456"
+        loop = asyncio.get_event_loop()
+        future = loop.create_future()
+        manager._pending_requests[request_id] = future
+
+        # Handle error response
+        response_data = {
+            "type": "response",
+            "request_id": request_id,
+            "error": {"code": "test_error", "message": "Something went wrong"},
+        }
+        handled = manager.handle_response(response_data)
+
+        assert handled is True
+        assert future.done()
+        with pytest.raises(Exception) as exc_info:
+            future.result()
+        assert "Something went wrong" in str(exc_info.value)
+
+        # Cleanup
+        manager._pending_requests.pop(request_id, None)
+
+    @pytest.mark.asyncio
+    async def test_handle_response_returns_false_for_unknown_request(self):
+        """handle_response returns False for unknown request_id."""
+        from amphigory.websocket import manager
+
+        response_data = {
+            "type": "response",
+            "request_id": "unknown-request-id",
+            "result": {"status": "ok"},
+        }
+        handled = manager.handle_response(response_data)
+
+        assert handled is False

@@ -217,6 +217,9 @@ async def websocket_endpoint(websocket: WebSocket):
                         sha_info = f" (git: {git_sha})" if git_sha else ""
                         uvi_logger.info(f"Daemon registered: {daemon_id}{sha_info}")
 
+                        # Register daemon connection for request/response
+                        manager.register_daemon(daemon_id, websocket)
+
                 elif msg_type == "disc_event" and daemon_id:
                     # Update disc status for daemon
                     if daemon_id in _daemons:
@@ -245,6 +248,10 @@ async def websocket_endpoint(websocket: WebSocket):
                             "daemon_id": daemon_id,
                         })
 
+                elif msg_type == "response":
+                    # Handle response from daemon
+                    manager.handle_response(message)
+
                 elif msg_type == "heartbeat" and daemon_id:
                     # Update last_seen on heartbeat
                     if daemon_id in _daemons:
@@ -259,6 +266,8 @@ async def websocket_endpoint(websocket: WebSocket):
             uvi_logger.info(f"WebSocket connection closed: {daemon_id}")
             if daemon_id in _daemons:
                 del _daemons[daemon_id]
+            # Unregister daemon
+            manager.unregister_daemon(daemon_id)
         else:
             uvi_logger.info("WebSocket connection closed")
         manager.disconnect(websocket)
