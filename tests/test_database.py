@@ -4,6 +4,7 @@ import pytest
 import tempfile
 import os
 from pathlib import Path
+import aiosqlite
 from amphigory.database import Database
 
 
@@ -204,6 +205,107 @@ class TestPhase3SchemaExtensions:
             )
             row = await cursor.fetchone()
 
+        # SQLite stores BOOLEAN TRUE as 1
         assert row["needs_reprocessing"] == 1
         assert row["reprocessing_type"] == "re-transcode"
         assert row["reprocessing_notes"] == "comb artifacts on extras"
+
+    @pytest.mark.asyncio
+    async def test_needs_reprocessing_defaults_to_false(self, db):
+        """needs_reprocessing defaults to FALSE when not specified."""
+        async with db.connection() as conn:
+            await conn.execute(
+                "INSERT INTO discs (title) VALUES (?)",
+                ("Test Movie",),
+            )
+            await conn.commit()
+
+            cursor = await conn.execute(
+                "SELECT needs_reprocessing FROM discs WHERE title = ?",
+                ("Test Movie",),
+            )
+            row = await cursor.fetchone()
+
+        # SQLite stores BOOLEAN FALSE as 0
+        assert row["needs_reprocessing"] == 0
+
+    @pytest.mark.asyncio
+    async def test_can_store_and_retrieve_preset_name(self, db):
+        """Can store and retrieve preset_name on a track."""
+        async with db.connection() as conn:
+            # First insert a disc
+            await conn.execute(
+                "INSERT INTO discs (title) VALUES (?)",
+                ("Test Disc",),
+            )
+            await conn.commit()
+
+            cursor = await conn.execute("SELECT id FROM discs WHERE title = ?", ("Test Disc",))
+            disc_row = await cursor.fetchone()
+            disc_id = disc_row["id"]
+
+            # Now insert a track with preset_name
+            await conn.execute(
+                """INSERT INTO tracks (disc_id, track_number, preset_name)
+                   VALUES (?, ?, ?)""",
+                (disc_id, 1, "H.265 MKV 1080p30"),
+            )
+            await conn.commit()
+
+            cursor = await conn.execute(
+                "SELECT preset_name FROM tracks WHERE disc_id = ? AND track_number = ?",
+                (disc_id, 1),
+            )
+            row = await cursor.fetchone()
+
+        assert row["preset_name"] == "H.265 MKV 1080p30"
+
+    @pytest.mark.asyncio
+    async def test_migration_backward_compatibility(self):
+        """Migrations properly add new columns to existing databases."""
+        from amphigory.database import Database
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "test.db"
+
+            # Step 1: Create database with old schema (without Phase 3 columns)
+            async with aiosqlite.connect(db_path) as conn:
+                await conn.execute("""
+                    CREATE TABLE discs (
+                        id INTEGER PRIMARY KEY,
+                        title TEXT NOT NULL,
+                        year INTEGER,
+                        processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                await conn.execute("""
+                    CREATE TABLE tracks (
+                        id INTEGER PRIMARY KEY,
+                        disc_id INTEGER REFERENCES discs(id),
+                        track_number INTEGER,
+                        status TEXT DEFAULT 'pending'
+                    )
+                """)
+                await conn.commit()
+
+            # Step 2: Initialize database (runs migrations)
+            db = Database(db_path)
+            await db.initialize()
+
+            # Step 3: Verify new columns exist
+            async with db.connection() as conn:
+                # Check discs table has Phase 3 columns
+                cursor = await conn.execute("PRAGMA table_info(discs)")
+                discs_columns = {row["name"] for row in await cursor.fetchall()}
+
+                assert "needs_reprocessing" in discs_columns
+                assert "reprocessing_type" in discs_columns
+                assert "reprocessing_notes" in discs_columns
+
+                # Check tracks table has preset_name
+                cursor = await conn.execute("PRAGMA table_info(tracks)")
+                tracks_columns = {row["name"] for row in await cursor.fetchall()}
+
+                assert "preset_name" in tracks_columns
+
+            await db.close()
