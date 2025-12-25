@@ -29,7 +29,7 @@ from fastapi.responses import HTMLResponse
 
 from amphigory.database import Database
 from amphigory.config import get_config
-from amphigory.api import disc_router, jobs_router, settings_router, tasks_router
+from amphigory.api import disc_router, jobs_router, settings_router, tasks_router, drives_router
 from amphigory.websocket import manager
 
 # Paths
@@ -82,6 +82,7 @@ app.include_router(disc_router)
 app.include_router(jobs_router)
 app.include_router(settings_router)
 app.include_router(tasks_router)
+app.include_router(drives_router)
 
 
 @app.get("/", response_class=HTMLResponse)
