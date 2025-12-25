@@ -160,11 +160,14 @@ webapp_basedir: "/Volumes/Media Drive 1/Ripped"
 | `/api/disc/status` | GET | Current disc status from daemon |
 | `/api/disc/scan` | POST | Create a scan task |
 | `/api/disc/scan-result` | GET | Get latest scan results |
+| `/api/disc/lookup-fingerprint` | GET | Look up disc by fingerprint |
+| `/api/drives` | GET | List all connected optical drives |
+| `/api/drives/{drive_id}` | GET | Get specific drive status |
 | `/api/tasks` | GET | List all tasks |
 | `/api/tasks/scan` | POST | Create scan task |
 | `/api/tasks/rip` | POST | Create rip task |
 | `/api/tasks/{id}` | GET | Get task status |
-| `/ws` | WebSocket | Real-time updates |
+| `/ws` | WebSocket | Bidirectional real-time updates |
 
 ## Development
 
