@@ -27,6 +27,7 @@
             <table class="tracks-table">
                 <thead>
                     <tr>
+                        <th class="col-drag"></th>
                         <th class="col-select"><input type="checkbox" id="select-all-checkbox" onchange="toggleAll(this)"></th>
                         <th class="col-track">#</th>
                         <th class="col-duration">Duration</th>
@@ -61,6 +62,54 @@
 
 <script>
 let scanResult = null;
+let draggedRow = null;
+
+// Drag and drop handlers
+function handleDragStart(e) {
+    draggedRow = e.target.closest('tr');
+    draggedRow.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
+}
+
+function handleDragOver(e) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+
+    const targetRow = e.target.closest('tr');
+    if (targetRow && targetRow !== draggedRow) {
+        const tbody = targetRow.parentNode;
+        const rows = Array.from(tbody.querySelectorAll('tr'));
+        const draggedIdx = rows.indexOf(draggedRow);
+        const targetIdx = rows.indexOf(targetRow);
+
+        if (draggedIdx < targetIdx) {
+            targetRow.after(draggedRow);
+        } else {
+            targetRow.before(draggedRow);
+        }
+    }
+}
+
+function handleDrop(e) {
+    e.preventDefault();
+}
+
+function handleDragEnd(e) {
+    draggedRow.classList.remove('dragging');
+    draggedRow = null;
+    updateTrackOrder();
+}
+
+function updateTrackOrder() {
+    // Update scanResult.tracks to match new DOM order
+    const tbody = document.getElementById('tracks-body');
+    const rows = Array.from(tbody.querySelectorAll('tr'));
+    const newOrder = rows.map(row => {
+        const trackNum = parseInt(row.querySelector('input[name="tracks"]').value);
+        return scanResult.tracks.find(t => t.number === trackNum);
+    });
+    scanResult.tracks = newOrder.filter(t => t); // Filter out any undefined
+}
 
 // Check disc status and show scan button
 async function checkDiscStatus() {
@@ -216,7 +265,14 @@ function displayScanResult(result) {
 
     const tbody = document.getElementById('tracks-body');
     tbody.innerHTML = result.tracks.map((track, index) => `
-        <tr class="track-row ${track.classification === 'main_feature' ? 'main-feature' : ''}">
+        <tr class="track-row ${track.classification === 'main_feature' ? 'main-feature' : ''}"
+            draggable="true"
+            data-track-index="${index}"
+            ondragstart="handleDragStart(event)"
+            ondragover="handleDragOver(event)"
+            ondrop="handleDrop(event)"
+            ondragend="handleDragEnd(event)">
+            <td class="col-drag"><span class="drag-handle">⋮⋮</span></td>
             <td class="col-select">
                 <input type="checkbox" name="tracks" value="${track.number || index}"
                        onchange="updateSelectedCount()" data-classification="${track.classification || 'unknown'}">

@@ -523,8 +523,32 @@ body {
     background: var(--bg);
 }
 
+.track-row {
+    cursor: grab;
+}
+
+.track-row.dragging {
+    opacity: 0.5;
+    background: var(--bg);
+}
+
+.track-row:active {
+    cursor: grabbing;
+}
+
 .track-row.main-feature {
     background: rgba(37, 99, 235, 0.05);
+}
+
+.col-drag {
+    width: 30px;
+    text-align: center;
+}
+
+.drag-handle {
+    cursor: grab;
+    color: var(--text-muted);
+    user-select: none;
 }
 
 .col-select { width: 40px; }
