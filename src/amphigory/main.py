@@ -230,6 +230,9 @@ async def websocket_endpoint(websocket: WebSocket):
                             _daemons[daemon_id].disc_device = None
                             _daemons[daemon_id].disc_volume = None
                             uvi_logger.info(f"Disc ejected (daemon: {daemon_id})")
+                            # Clear cached scan result
+                            from amphigory.api.disc import clear_current_scan
+                            clear_current_scan()
 
                         # Broadcast to browser clients
                         await manager.broadcast({

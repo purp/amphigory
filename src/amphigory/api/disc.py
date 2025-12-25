@@ -21,6 +21,27 @@ from amphigory.api.settings import _daemons
 router = APIRouter(prefix="/api/disc", tags=["disc"])
 
 
+# Current scan result for the inserted disc (cleared on eject)
+_current_scan: Optional[dict] = None
+
+
+def get_current_scan() -> Optional[dict]:
+    """Get the current cached scan result."""
+    return _current_scan
+
+
+def set_current_scan(scan_result: dict) -> None:
+    """Cache a scan result."""
+    global _current_scan
+    _current_scan = scan_result
+
+
+def clear_current_scan() -> None:
+    """Clear the cached scan result (called on disc eject)."""
+    global _current_scan
+    _current_scan = None
+
+
 def get_tasks_dir() -> Path:
     """Get the tasks directory from environment."""
     data_dir = Path(os.environ.get("AMPHIGORY_DATA", "/data"))
@@ -101,6 +122,14 @@ async def scan_current_disc(request: Request) -> ScanTaskResponse:
     return ScanTaskResponse(task_id=task_id, status="scanning")
 
 
+@router.get("/current-scan")
+async def get_cached_scan(request: Request):
+    """Get the currently cached scan result, if any."""
+    if _current_scan is None:
+        raise HTTPException(status_code=404, detail="No scan cached")
+    return _current_scan
+
+
 @router.get("/scan-result")
 async def get_scan_result(request: Request, task_id: Optional[str] = None) -> ScanResultResponse:
     """Get scan result.
@@ -136,6 +165,14 @@ async def get_scan_result(request: Request, task_id: Optional[str] = None) -> Sc
                 detail=f"Task {task_id} has no scan result"
             )
         result = data["result"]
+
+        # Cache the result
+        set_current_scan({
+            "disc_name": result["disc_name"],
+            "disc_type": result["disc_type"],
+            "tracks": result.get("tracks", []),
+        })
+
         return ScanResultResponse(
             disc_name=result["disc_name"],
             disc_type=result["disc_type"],
@@ -160,6 +197,14 @@ async def get_scan_result(request: Request, task_id: Optional[str] = None) -> Sc
     _, latest = scan_results[0]
 
     result = latest["result"]
+
+    # Cache the result
+    set_current_scan({
+        "disc_name": result["disc_name"],
+        "disc_type": result["disc_type"],
+        "tracks": result.get("tracks", []),
+    })
+
     return ScanResultResponse(
         disc_name=result["disc_name"],
         disc_type=result["disc_type"],
@@ -173,7 +218,20 @@ async def get_disc_status_html(request: Request):
     # Find first daemon with disc inserted
     for daemon in _daemons.values():
         if daemon.disc_inserted:
-            return f'''
+            scan = get_current_scan()
+            if scan:
+                track_count = len(scan.get("tracks", []))
+                return f'''
+            <div class="disc-detected">
+                <p class="status-message status-success">Disc detected: {daemon.disc_volume or "Unknown"}</p>
+                <p class="status-detail">{daemon.daemon_id} {daemon.disc_device}</p>
+                <p class="status-detail">{track_count} tracks scanned</p>
+                <a href="/disc" class="btn btn-primary">Review Tracks</a>
+            </div>
+            '''
+            else:
+                # No scan yet - show scan button
+                return f'''
             <div class="disc-detected">
                 <p class="status-message status-success">Disc detected: {daemon.disc_volume or "Unknown"}</p>
                 <p class="status-detail">{daemon.daemon_id} {daemon.disc_device}</p>

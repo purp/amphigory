@@ -72,6 +72,19 @@ async function checkDiscStatus() {
         const scanSection = document.getElementById('scan-section');
 
         if (data.has_disc) {
+            // Check if we have cached scan results
+            try {
+                const scanResponse = await fetch('/api/disc/current-scan');
+                if (scanResponse.ok) {
+                    scanResult = await scanResponse.json();
+                    displayScanResult(scanResult);
+                    return;
+                }
+            } catch (err) {
+                // No cached scan - continue to show scan button
+            }
+
+            // No cached scan - show scan button
             statusText.textContent = `Disc: ${data.volume_name || 'Unknown'} (${data.device_path})`;
             scanSection.innerHTML = `
                 <button class="btn btn-primary" onclick="startScan()">

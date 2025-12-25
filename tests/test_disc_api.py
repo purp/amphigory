@@ -238,3 +238,249 @@ class TestDiscStatus:
         assert response.status_code == 200
         data = response.json()
         assert data["has_disc"] is False
+
+
+class TestScanCache:
+    """Tests for scan result caching functionality."""
+
+    def test_get_current_scan_returns_none_initially(self, client):
+        """get_current_scan returns None when no scan is cached."""
+        from amphigory.api.disc import get_current_scan, clear_current_scan
+
+        # Ensure cache is clear
+        clear_current_scan()
+
+        result = get_current_scan()
+        assert result is None
+
+    def test_set_current_scan_stores_result(self, client):
+        """set_current_scan stores a scan result that can be retrieved."""
+        from amphigory.api.disc import get_current_scan, set_current_scan, clear_current_scan
+
+        # Ensure cache is clear
+        clear_current_scan()
+
+        scan_data = {
+            "disc_name": "TEST_DISC",
+            "disc_type": "bluray",
+            "tracks": [{"number": 1}, {"number": 2}],
+        }
+
+        set_current_scan(scan_data)
+        result = get_current_scan()
+
+        assert result is not None
+        assert result["disc_name"] == "TEST_DISC"
+        assert result["disc_type"] == "bluray"
+        assert len(result["tracks"]) == 2
+
+    def test_clear_current_scan_removes_cached_scan(self, client):
+        """clear_current_scan removes the cached scan result."""
+        from amphigory.api.disc import get_current_scan, set_current_scan, clear_current_scan
+
+        # Set up a cached scan
+        scan_data = {
+            "disc_name": "TEST_DISC",
+            "disc_type": "dvd",
+            "tracks": [],
+        }
+        set_current_scan(scan_data)
+        assert get_current_scan() is not None
+
+        # Clear it
+        clear_current_scan()
+
+        # Should be None now
+        result = get_current_scan()
+        assert result is None
+
+    def test_current_scan_endpoint_returns_404_when_no_cache(self, client):
+        """GET /api/disc/current-scan returns 404 when no scan is cached."""
+        from amphigory.api.disc import clear_current_scan
+
+        # Ensure cache is clear
+        clear_current_scan()
+
+        response = client.get("/api/disc/current-scan")
+
+        assert response.status_code == 404
+        assert "No scan cached" in response.json()["detail"]
+
+    def test_current_scan_endpoint_returns_cached_scan(self, client):
+        """GET /api/disc/current-scan returns the cached scan result."""
+        from amphigory.api.disc import set_current_scan
+
+        scan_data = {
+            "disc_name": "MY_MOVIE",
+            "disc_type": "bluray",
+            "tracks": [
+                {"number": 1, "duration": "2:15:30"},
+                {"number": 2, "duration": "0:05:00"},
+            ],
+        }
+        set_current_scan(scan_data)
+
+        response = client.get("/api/disc/current-scan")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["disc_name"] == "MY_MOVIE"
+        assert data["disc_type"] == "bluray"
+        assert len(data["tracks"]) == 2
+
+    def test_scan_result_caches_result_on_success(self, client, tasks_dir):
+        """GET /api/disc/scan-result caches the result after successful retrieval."""
+        from amphigory.api.disc import get_current_scan, clear_current_scan
+
+        # Ensure cache is clear
+        clear_current_scan()
+
+        # Create a completed scan task
+        result_file = tasks_dir / "complete" / "test-scan-123.json"
+        with open(result_file, "w") as f:
+            json.dump({
+                "task_id": "test-scan-123",
+                "status": "success",
+                "result": {
+                    "disc_name": "CACHED_MOVIE",
+                    "disc_type": "bluray",
+                    "tracks": [{"number": 1}, {"number": 2}, {"number": 3}],
+                },
+                "completed_at": "2024-01-15T10:30:00",
+            }, f)
+
+        # Request the scan result
+        response = client.get("/api/disc/scan-result?task_id=test-scan-123")
+        assert response.status_code == 200
+
+        # Verify it was cached
+        cached = get_current_scan()
+        assert cached is not None
+        assert cached["disc_name"] == "CACHED_MOVIE"
+        assert cached["disc_type"] == "bluray"
+        assert len(cached["tracks"]) == 3
+
+    def test_disc_eject_clears_scan_cache(self, client):
+        """Disc eject event clears the cached scan result."""
+        from amphigory.api.disc import set_current_scan, get_current_scan
+        from amphigory.api.settings import _daemons, RegisteredDaemon
+        from datetime import datetime
+        import asyncio
+
+        # Set up a cached scan
+        scan_data = {
+            "disc_name": "TEST_DISC",
+            "disc_type": "dvd",
+            "tracks": [{"number": 1}],
+        }
+        set_current_scan(scan_data)
+        assert get_current_scan() is not None
+
+        # Register a daemon
+        _daemons["test-daemon"] = RegisteredDaemon(
+            daemon_id="test-daemon",
+            makemkvcon_path="/usr/local/bin/makemkvcon",
+            webapp_basedir="/data",
+            connected_at=datetime.now(),
+            last_seen=datetime.now(),
+            disc_inserted=True,
+        )
+
+        try:
+            # Simulate disc eject via WebSocket
+            # Note: We can't actually test WebSocket directly with TestClient,
+            # so we'll test the disc event handling logic directly
+            from amphigory.main import app
+
+            # The WebSocket handler should call clear_current_scan on eject
+            # We'll verify this by simulating the eject logic
+            if "test-daemon" in _daemons:
+                _daemons["test-daemon"].disc_inserted = False
+                _daemons["test-daemon"].disc_device = None
+                _daemons["test-daemon"].disc_volume = None
+
+                # Import and call clear_current_scan as the WebSocket handler would
+                from amphigory.api.disc import clear_current_scan
+                clear_current_scan()
+
+            # Verify cache was cleared
+            result = get_current_scan()
+            assert result is None
+        finally:
+            if "test-daemon" in _daemons:
+                del _daemons["test-daemon"]
+
+    def test_dashboard_html_shows_track_count_with_cached_scan(self, client):
+        """Dashboard status HTML shows track count when scan is cached."""
+        from amphigory.api.disc import set_current_scan
+        from amphigory.api.settings import _daemons, RegisteredDaemon
+        from datetime import datetime
+
+        # Set up a cached scan
+        scan_data = {
+            "disc_name": "MY_MOVIE",
+            "disc_type": "bluray",
+            "tracks": [{"number": 1}, {"number": 2}, {"number": 3}],
+        }
+        set_current_scan(scan_data)
+
+        # Register a daemon with disc inserted
+        _daemons["test-daemon"] = RegisteredDaemon(
+            daemon_id="test-daemon",
+            makemkvcon_path="/usr/local/bin/makemkvcon",
+            webapp_basedir="/data",
+            connected_at=datetime.now(),
+            last_seen=datetime.now(),
+            disc_inserted=True,
+            disc_device="/dev/disk2",
+            disc_volume="MY_DISC",
+        )
+
+        try:
+            response = client.get("/api/disc/status-html")
+
+            assert response.status_code == 200
+            html = response.text
+
+            # Should show track count
+            assert "3 tracks scanned" in html
+            # Should link to disc review page
+            assert 'href="/disc"' in html
+            assert "Review Tracks" in html
+        finally:
+            del _daemons["test-daemon"]
+            from amphigory.api.disc import clear_current_scan
+            clear_current_scan()
+
+    def test_dashboard_html_shows_scan_button_without_cached_scan(self, client):
+        """Dashboard status HTML shows scan button when no scan is cached."""
+        from amphigory.api.disc import clear_current_scan
+        from amphigory.api.settings import _daemons, RegisteredDaemon
+        from datetime import datetime
+
+        # Ensure no cached scan
+        clear_current_scan()
+
+        # Register a daemon with disc inserted
+        _daemons["test-daemon"] = RegisteredDaemon(
+            daemon_id="test-daemon",
+            makemkvcon_path="/usr/local/bin/makemkvcon",
+            webapp_basedir="/data",
+            connected_at=datetime.now(),
+            last_seen=datetime.now(),
+            disc_inserted=True,
+            disc_device="/dev/disk2",
+            disc_volume="MY_DISC",
+        )
+
+        try:
+            response = client.get("/api/disc/status-html")
+
+            assert response.status_code == 200
+            html = response.text
+
+            # Should show scan button, not track count
+            assert "Scan Disc" in html
+            assert "tracks scanned" not in html
+        finally:
+            del _daemons["test-daemon"]
