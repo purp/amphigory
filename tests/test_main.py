@@ -401,3 +401,13 @@ class TestWebSocketRequests:
         handled = manager.handle_response(response_data)
 
         assert handled is False
+
+
+class TestLibraryPage:
+    """Tests for /library HTML page."""
+
+    def test_library_page_loads(self, test_client):
+        """Library page loads successfully."""
+        response = test_client.get("/library")
+        assert response.status_code == 200
+        assert "Library" in response.text

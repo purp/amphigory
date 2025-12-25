@@ -1,0 +1,218 @@
+{% extends "base.html" %}
+
+{% block title %}Library - Amphigory{% endblock %}
+
+{% block content %}
+<div class="library-page">
+    <h1>Library</h1>
+
+    <!-- Filters -->
+    <div class="filters">
+        <select id="status-filter" onchange="applyFilters()">
+            <option value="">All Status</option>
+            <option value="complete">Complete</option>
+            <option value="needs_attention">Needs Attention</option>
+            <option value="not_processed">Not Processed</option>
+        </select>
+
+        <select id="disc-type-filter" onchange="applyFilters()">
+            <option value="">All Disc Types</option>
+            <option value="uhd">UHD</option>
+            <option value="bluray">Blu-ray</option>
+            <option value="dvd">DVD</option>
+        </select>
+
+        <select id="media-type-filter" onchange="applyFilters()">
+            <option value="">All Media Types</option>
+            <option value="movie">Movie</option>
+            <option value="tv">TV</option>
+            <option value="music">Music</option>
+        </select>
+
+        <input type="text" id="search-input" placeholder="Search titles..."
+               onkeyup="debounceSearch()">
+    </div>
+
+    <!-- Disc table -->
+    <div id="disc-list"
+         hx-get="/api/library/html"
+         hx-trigger="load"
+         hx-target="#disc-list">
+        <p>Loading...</p>
+    </div>
+</div>
+
+<script>
+let searchTimeout;
+
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
+function debounceSearch() {
+    clearTimeout(searchTimeout);
+    searchTimeout = setTimeout(applyFilters, 300);
+}
+
+function applyFilters() {
+    const status = document.getElementById('status-filter').value;
+    const discType = document.getElementById('disc-type-filter').value;
+    const mediaType = document.getElementById('media-type-filter').value;
+    const search = document.getElementById('search-input').value;
+
+    let url = '/api/library/html?';
+    if (status) url += `status=${status}&`;
+    if (discType) url += `disc_type=${discType}&`;
+    if (mediaType) url += `media_type=${mediaType}&`;
+    if (search) url += `search=${encodeURIComponent(search)}&`;
+
+    htmx.ajax('GET', url, '#disc-list');
+}
+
+async function toggleDetails(discId) {
+    const row = document.getElementById(`disc-${discId}`);
+    const detailsRow = document.getElementById(`details-${discId}`);
+
+    if (detailsRow) {
+        detailsRow.remove();
+        return;
+    }
+
+    try {
+        const response = await fetch(`/api/library/${discId}`);
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        const disc = await response.json();
+
+        const newRow = document.createElement('tr');
+        newRow.id = `details-${discId}`;
+        newRow.className = 'details-row';
+        newRow.innerHTML = `
+            <td colspan="7">
+                <div class="disc-details">
+                    <h3>${escapeHtml(disc.title)} (${escapeHtml(disc.year?.toString() || 'N/A')})</h3>
+                    <p><strong>IMDB:</strong> ${escapeHtml(disc.imdb_id || 'N/A')} |
+                       <strong>Disc Type:</strong> ${escapeHtml(disc.disc_type || 'N/A')}</p>
+
+                    <h4>Tracks</h4>
+                    <table class="tracks-table">
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>Type</th>
+                                <th>Final Name</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            ${disc.tracks.map(t => `
+                                <tr>
+                                    <td>${escapeHtml(t.track_number?.toString() || '-')}</td>
+                                    <td>${escapeHtml(t.track_type || '-')}</td>
+                                    <td>${escapeHtml(t.final_name || '-')}</td>
+                                    <td>${escapeHtml(t.status || '-')}</td>
+                                </tr>
+                            `).join('')}
+                        </tbody>
+                    </table>
+
+                    <div class="actions">
+                        <button onclick="showFlagDialog(${disc.id})" class="btn btn-warning">
+                            Flag for Reprocessing
+                        </button>
+                    </div>
+                </div>
+            </td>
+        `;
+        row.after(newRow);
+    } catch (error) {
+        console.error('Error loading disc details:', error);
+        alert('Failed to load disc details. Please try again.');
+    }
+}
+
+async function showFlagDialog(discId) {
+    const type = prompt('Flag type (re-rip, re-transcode, missing-tracks):');
+    if (!type) return;
+
+    const notes = prompt('Notes (optional):');
+
+    try {
+        const response = await fetch(`/api/library/${discId}/flag`, {
+            method: 'PATCH',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({
+                needs_reprocessing: true,
+                reprocessing_type: type,
+                reprocessing_notes: notes || null,
+            }),
+        });
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
+        applyFilters();
+    } catch (error) {
+        console.error('Error flagging disc:', error);
+        alert('Failed to flag disc. Please try again.');
+    }
+}
+</script>
+
+<style>
+.filters {
+    display: flex;
+    gap: 1rem;
+    margin-bottom: 1rem;
+    flex-wrap: wrap;
+}
+
+.filters select, .filters input {
+    padding: 0.5rem;
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+}
+
+.disc-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.disc-table th, .disc-table td {
+    padding: 0.75rem;
+    text-align: left;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.disc-table tr:hover {
+    background: var(--bg-hover);
+    cursor: pointer;
+}
+
+.status-complete { color: var(--success-color); }
+.status-needs_attention { color: var(--warning-color); }
+.status-not_processed { color: var(--muted-color); }
+
+.details-row {
+    background: var(--bg-secondary);
+}
+
+.disc-details {
+    padding: 1rem;
+}
+
+.tracks-table {
+    width: 100%;
+    margin: 1rem 0;
+}
+
+.actions {
+    display: flex;
+    gap: 0.5rem;
+    margin-top: 1rem;
+}
+</style>
+{% endblock %}

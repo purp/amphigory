@@ -2,6 +2,7 @@
 
 from typing import Optional, List
 from fastapi import APIRouter, Request, Query, HTTPException
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 router = APIRouter(prefix="/api/library", tags=["library"])
@@ -191,3 +192,55 @@ async def flag_disc(request: Request, disc_id: int, flag: FlagRequest) -> dict:
         await conn.commit()
 
     return {"status": "ok"}
+
+
+@router.get("/html", response_class=HTMLResponse)
+async def list_discs_html(
+    request: Request,
+    status: Optional[str] = None,
+    disc_type: Optional[str] = None,
+    media_type: Optional[str] = None,
+    search: Optional[str] = None,
+) -> str:
+    """Return HTML table of discs for HTMX."""
+    response = await list_discs(request, status, disc_type, media_type, search)
+
+    if not response.discs:
+        return "<p>No discs found.</p>"
+
+    rows = []
+    for disc in response.discs:
+        status_class = f"status-{disc.status}"
+        status_icon = {"complete": "✓", "needs_attention": "⚠", "not_processed": "○"}.get(disc.status, "")
+
+        rows.append(f"""
+            <tr id="disc-{disc.id}" onclick="toggleDetails({disc.id})">
+                <td>{disc.title}</td>
+                <td>{disc.year or '-'}</td>
+                <td>{disc.disc_type or '-'}</td>
+                <td>{disc.media_type}</td>
+                <td>{disc.track_count}</td>
+                <td>{disc.processed_at[:10] if disc.processed_at else '-'}</td>
+                <td class="{status_class}">{status_icon} {disc.status.replace('_', ' ').title()}</td>
+            </tr>
+        """)
+
+    return f"""
+        <table class="disc-table">
+            <thead>
+                <tr>
+                    <th>Title</th>
+                    <th>Year</th>
+                    <th>Disc Type</th>
+                    <th>Media Type</th>
+                    <th>Tracks</th>
+                    <th>Processed</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                {''.join(rows)}
+            </tbody>
+        </table>
+        <p>{response.total} disc(s)</p>
+    """

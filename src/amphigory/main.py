@@ -116,6 +116,12 @@ async def queue_page(request: Request):
     )
 
 
+@app.get("/library", response_class=HTMLResponse)
+async def library_page(request: Request):
+    """Library page."""
+    return templates.TemplateResponse(request, "library.html", {"active_page": "library"})
+
+
 @app.get("/settings", response_class=HTMLResponse)
 async def settings_page(request: Request):
     """Settings page."""
