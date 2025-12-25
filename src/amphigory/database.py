@@ -84,7 +84,22 @@ class Database:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         async with aiosqlite.connect(self.db_path) as conn:
             await conn.executescript(SCHEMA)
+            await self._run_migrations(conn)
             await conn.commit()
+
+    async def _run_migrations(self, conn: aiosqlite.Connection) -> None:
+        """Run database migrations for schema updates."""
+        # Check if fingerprint column exists in discs table
+        cursor = await conn.execute("PRAGMA table_info(discs)")
+        columns = {row[1] for row in await cursor.fetchall()}
+
+        # Migration: Add fingerprint, scan_data, scanned_at columns (Task 6)
+        if "fingerprint" not in columns:
+            await conn.execute("ALTER TABLE discs ADD COLUMN fingerprint TEXT UNIQUE")
+        if "scan_data" not in columns:
+            await conn.execute("ALTER TABLE discs ADD COLUMN scan_data TEXT")
+        if "scanned_at" not in columns:
+            await conn.execute("ALTER TABLE discs ADD COLUMN scanned_at TIMESTAMP")
 
     @asynccontextmanager
     async def connection(self) -> AsyncGenerator[aiosqlite.Connection, None]:
