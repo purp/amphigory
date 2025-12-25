@@ -8,7 +8,7 @@ class TestDiscDetector:
         """DiscDetector can be instantiated with callbacks."""
         from amphigory_daemon.disc import DiscDetector
 
-        def on_insert(device, volume):
+        def on_insert(device, volume, volume_path):
             pass
 
         def on_eject(device):
@@ -26,7 +26,7 @@ class TestDiscDetector:
         from amphigory_daemon.disc import DiscDetector
 
         detector = DiscDetector.alloc_with_callbacks(
-            on_insert=lambda d, v: None,
+            on_insert=lambda d, v, p: None,
             on_eject=lambda d: None,
         )
 
@@ -42,7 +42,7 @@ class TestDiscDetector:
         from amphigory_daemon.disc import DiscDetector
         inserted = []
         detector = DiscDetector.alloc_with_callbacks(
-            on_insert=lambda d, v: inserted.append((d, v)),
+            on_insert=lambda d, v, p: inserted.append((d, v, p)),
             on_eject=lambda d: None,
         )
         # Check that _current_volume_path is initialized to None
@@ -57,7 +57,7 @@ class TestDiscDetector:
         from unittest.mock import MagicMock, patch
         inserted = []
         detector = DiscDetector.alloc_with_callbacks(
-            on_insert=lambda d, v: inserted.append((d, v)),
+            on_insert=lambda d, v, p: inserted.append((d, v, p)),
             on_eject=lambda d: None,
         )
         mock_notification = MagicMock()
@@ -69,6 +69,7 @@ class TestDiscDetector:
                 detector.handleMount_(mock_notification)
         assert detector._current_volume_path == "/Volumes/TEST_DISC"
         assert len(inserted) == 1
+        assert inserted[0] == ("/dev/rdisk5", "TEST_DISC", "/Volumes/TEST_DISC")
 
     def test_handleUnmount_fires_eject_for_tracked_volume(self):
         """handleUnmount_ fires eject callback when path matches tracked volume."""
@@ -95,7 +96,7 @@ class TestDiscDetector:
         from unittest.mock import MagicMock
         ejected = []
         detector = DiscDetector.alloc_with_callbacks(
-            on_insert=lambda d, v: None,
+            on_insert=lambda d, v, p: None,
             on_eject=lambda p: ejected.append(p),
         )
         detector._current_volume_path = "/Volumes/MY_DISC"
@@ -106,3 +107,44 @@ class TestDiscDetector:
         detector.handleUnmount_(mock_notification)
         assert len(ejected) == 0
         assert detector._current_volume_path == "/Volumes/MY_DISC"
+
+    def test_get_current_disc_returns_volume_path(self):
+        """get_current_disc returns (device, volume_name, volume_path) tuple."""
+        from amphigory_daemon.disc import DiscDetector
+        from unittest.mock import patch
+
+        detector = DiscDetector.alloc_with_callbacks(
+            on_insert=lambda d, v, p: None,
+            on_eject=lambda p: None,
+        )
+
+        # Mock subprocess to simulate a disc present
+        with patch("subprocess.run") as mock_run:
+            # First call: diskutil list
+            mock_list = type('obj', (object,), {
+                'returncode': 0,
+                'stdout': '/dev/disk4\n/dev/disk5\n'
+            })()
+
+            # Second call: diskutil info /dev/rdisk4 (check if optical)
+            mock_info_optical = type('obj', (object,), {
+                'returncode': 0,
+                'stdout': 'Device Node: /dev/disk4\nOptical: Yes\nDVD-ROM\n'
+            })()
+
+            # Third call: diskutil info disk4 (get volume name)
+            mock_info_volume = type('obj', (object,), {
+                'returncode': 0,
+                'stdout': 'Volume Name: MY_DVD\nMount Point: /Volumes/MY_DVD\n'
+            })()
+
+            mock_run.side_effect = [mock_list, mock_info_optical, mock_info_volume]
+
+            result = detector.get_current_disc()
+
+        assert result is not None
+        assert len(result) == 3
+        device, volume_name, volume_path = result
+        assert device == "/dev/rdisk4"
+        assert volume_name == "MY_DVD"
+        assert volume_path == "/Volumes/MY_DVD"

@@ -154,7 +154,7 @@ class AmphigoryDaemon(rumps.App):
         self.current_task: Optional[ScanTask | RipTask] = None
         self.current_progress: int = 0
         self.pause_mode = PauseMode.NONE
-        self.current_disc: Optional[tuple[str, str]] = None  # (device, volume)
+        self.current_disc: Optional[tuple[str, str]] = None  # (device, volume) - kept for compatibility
         self._running = False
         self._task_loop: Optional[asyncio.Task] = None
         self._heartbeat_task: Optional[asyncio.Task] = None
@@ -486,12 +486,12 @@ class AmphigoryDaemon(rumps.App):
         else:
             return "cd"
 
-    def on_disc_insert(self, device: str, volume_name: str, volume_path: str = None) -> None:
+    def on_disc_insert(self, device: str, volume_name: str, volume_path: str) -> None:
         """Handle disc insertion."""
-        logger.info(f"Disc inserted: {volume_name} at {device}")
+        logger.info(f"Disc inserted: {volume_name} at {device}, path: {volume_path}")
 
         # Determine disc type
-        disc_type = self._detect_disc_type(volume_path) if volume_path else "unknown"
+        disc_type = self._detect_disc_type(volume_path)
 
         # Update OpticalDrive model
         if self.optical_drive:
@@ -499,13 +499,12 @@ class AmphigoryDaemon(rumps.App):
             self.optical_drive.insert_disc(volume=volume_name, disc_type=disc_type)
 
             # Generate fingerprint
-            if volume_path:
-                try:
-                    fingerprint = generate_fingerprint(volume_path, disc_type, volume_name)
-                    self.optical_drive.set_fingerprint(fingerprint)
-                    logger.info(f"Generated fingerprint: {fingerprint[:16]}...")
-                except FingerprintError as e:
-                    logger.warning(f"Failed to generate fingerprint: {e}")
+            try:
+                fingerprint = generate_fingerprint(volume_path, disc_type, volume_name)
+                self.optical_drive.set_fingerprint(fingerprint)
+                logger.info(f"Generated fingerprint: {fingerprint[:16]}...")
+            except FingerprintError as e:
+                logger.warning(f"Failed to generate fingerprint: {e}")
 
         self.current_disc = (device, volume_name)
         self.activity_state = ActivityState.IDLE_DISC
@@ -904,10 +903,10 @@ def main():
         time.sleep(0.01)
 
     # Create wrappers that schedule async work on the event loop
-    def on_insert_wrapper(device: str, volume_name: str):
+    def on_insert_wrapper(device: str, volume_name: str, volume_path: str):
         loop.call_soon_threadsafe(
             lambda: asyncio.create_task(
-                _async_on_disc_insert(app, device, volume_name)
+                _async_on_disc_insert(app, device, volume_name, volume_path)
             )
         )
 
@@ -939,9 +938,9 @@ def main():
     app.run()
 
 
-async def _async_on_disc_insert(app: AmphigoryDaemon, device: str, volume_name: str):
+async def _async_on_disc_insert(app: AmphigoryDaemon, device: str, volume_name: str, volume_path: str):
     """Async handler for disc insertion (runs on async thread)."""
-    app.on_disc_insert(device, volume_name)
+    app.on_disc_insert(device, volume_name, volume_path)
 
 
 async def _async_on_disc_eject(app: AmphigoryDaemon, volume_path: str):

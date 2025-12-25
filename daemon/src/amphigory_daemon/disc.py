@@ -43,14 +43,14 @@ class DiscDetector(NSObject):
     @classmethod
     def alloc_with_callbacks(
         cls,
-        on_insert: Callable[[str, str], None],
+        on_insert: Callable[[str, str, str], None],
         on_eject: Callable[[str], None],
     ) -> "DiscDetector":
         """
         Create a DiscDetector with callbacks.
 
         Args:
-            on_insert: Callback when disc inserted (device, volume_name)
+            on_insert: Callback when disc inserted (device, volume_name, volume_path)
             on_eject: Callback when disc ejected (device)
 
         Returns:
@@ -146,7 +146,7 @@ class DiscDetector(NSObject):
                 logger.info(f"Optical disc inserted: {volume_name} at {device}")
                 self._current_volume_path = path
                 if self._on_insert:
-                    self._on_insert(device, volume_name)
+                    self._on_insert(device, volume_name, path)
 
         except Exception as e:
             logger.error(f"Error handling mount notification: {e}")
@@ -263,12 +263,12 @@ class DiscDetector(NSObject):
             logger.error(f"Error checking if device is optical: {e}")
             return False
 
-    def get_current_disc(self) -> Optional[Tuple[str, str]]:
+    def get_current_disc(self) -> Optional[Tuple[str, str, str]]:
         """
         Check if a disc is currently inserted.
 
         Returns:
-            Tuple of (device, volume_name) if disc present, None otherwise
+            Tuple of (device, volume_name, volume_path) if disc present, None otherwise
         """
         import subprocess
         import re
@@ -298,18 +298,24 @@ class DiscDetector(NSObject):
             for disk_id in disk_ids:
                 device = f"/dev/r{disk_id}"
                 if self._is_optical_device(device):
-                    volume = self._get_volume_for_device(device)
-                    if volume:
-                        logger.info(f"Found optical disc: {volume} at {device}")
-                        return (device, volume)
+                    volume_info = self._get_volume_for_device(device)
+                    if volume_info:
+                        volume_name, volume_path = volume_info
+                        logger.info(f"Found optical disc: {volume_name} at {device}, path: {volume_path}")
+                        return (device, volume_name, volume_path)
 
         except Exception as e:
             logger.error(f"Error checking for current disc: {e}")
 
         return None
 
-    def _get_volume_for_device(self, device: str) -> Optional[str]:
-        """Get the volume name for a device."""
+    def _get_volume_for_device(self, device: str) -> Optional[Tuple[str, str]]:
+        """
+        Get the volume name and path for a device.
+
+        Returns:
+            Tuple of (volume_name, volume_path) or None
+        """
         import subprocess
 
         try:
@@ -325,11 +331,21 @@ class DiscDetector(NSObject):
             if result.returncode != 0:
                 return None
 
+            volume_name = None
+            volume_path = None
+
             for line in result.stdout.split("\n"):
                 if "Volume Name:" in line:
                     parts = line.split(":")
                     if len(parts) >= 2:
-                        return parts[1].strip()
+                        volume_name = parts[1].strip()
+                elif "Mount Point:" in line:
+                    parts = line.split(":")
+                    if len(parts) >= 2:
+                        volume_path = parts[1].strip()
+
+            if volume_name and volume_path:
+                return (volume_name, volume_path)
 
         except Exception as e:
             logger.error(f"Error getting volume for device: {e}")
