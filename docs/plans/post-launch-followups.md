@@ -9,7 +9,7 @@ Items deferred to focus on getting to a fully functional system first.
 
 ## Logging
 
-- [ ] Webapp WebSocket logging not showing daemon_id on connect/disconnect (need to verify implementation)
+- [x] Webapp WebSocket logging showing daemon_id on connect/disconnect (completed in refactor)
 - [ ] Log logging level on webapp and daemon startup
 - [ ] Log logging level changes when config is updated
 
@@ -28,18 +28,31 @@ Items deferred to focus on getting to a fully functional system first.
 - [ ] Build container image and push to registry
 - [ ] Auto-restart container when new image is pushed to registry (watchtower or similar)
 
+## Recovery Handling
+
+- [ ] **Missing disc recovery**: When storage recovery finds incomplete rips, mark disc as "missing" in database rather than requiring re-rip
+- [ ] **Re-rip optional**: Provide UI option to re-rip if user reinserts disc, but don't require it
+
+## Database Protection
+
+- [ ] **Automated backups**: Periodic SQLite database backups to a secondary location
+- [ ] **Backup rotation**: Keep N recent backups, prune older ones
+- [ ] **Redundancy**: Consider replicating database to NAS or cloud storage
+- [ ] **Integrity checks**: Periodic PRAGMA integrity_check on database
+
 ## Future Enhancements
 
 - [ ] Proactive scanning: daemon scans disc on insert, caches result for quick display on Disc Review page
 - [ ] Show HandBrake preset for each track on Disc Review page, with dropdown to select different preset
 - [ ] Track previews: grab 60 seconds of a track for quick preview transcoding
 - [ ] Reinstate the app-level "Daemon Connected" badge in the webapp and use broadcast to keep all browser clients up-to-date
+- [ ] Upload pics of media case back to get more info (barcode, copyright dates, formats, extra features, etc.) to aid in disc and track identification
 
 ## Multi-User / Multi-Drive Configuration
 
 If we ever want to support multiple daemons (multiple optical drives) or concurrent users:
 
-- [ ] **Thread safety for scan cache**: Add locking to `_current_scan` in `disc.py` to prevent race conditions with concurrent requests
-- [ ] **Per-daemon scan cache**: Change `_current_scan` from global to per-daemon dict keyed by `daemon_id`, so ejecting one drive doesn't clear the cache for another
+- [x] **Per-daemon scan cache**: Scan results now stored in OpticalDrive model on daemon side (completed in refactor)
+- [ ] **Thread safety for scan cache**: Add locking to `_current_scan` in `disc.py` if needed for concurrent requests
 - [ ] **Multi-user session state**: Consider moving scan cache to user sessions or database instead of webapp memory
 - [ ] **Dashboard multi-drive display**: Show status for all connected drives, not just the first one with a disc

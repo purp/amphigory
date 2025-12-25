@@ -13,14 +13,16 @@ Amphigory uses a split architecture to work around Docker Desktop for Mac's inab
 │                     macOS Host                                   │
 │  ┌─────────────────────────────────────────────────────────────┐│
 │  │               Amphigory Daemon (menu bar app)                ││
+│  │  - OpticalDrive model (single source of truth)              ││
 │  │  - Detects disc insert/eject                                ││
+│  │  - Generates disc fingerprints for identification           ││
 │  │  - Runs MakeMKV for scanning and ripping                    ││
 │  │  - Writes ripped files to shared storage                    ││
-│  │  - Communicates with webapp via WebSocket                   ││
+│  │  - Bidirectional WebSocket with webapp                      ││
 │  └─────────────────────────────────────────────────────────────┘│
 └─────────────────────────────────────────────────────────────────┘
                               │
-                              │ Shared Storage
+                              │ WebSocket + Shared Storage
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                     Docker Container                             │
@@ -28,18 +30,37 @@ Amphigory uses a split architecture to work around Docker Desktop for Mac's inab
 │  │               Amphigory Webapp (FastAPI)                     ││
 │  │  - Web UI for disc review and track selection               ││
 │  │  - Task queue management                                    ││
+│  │  - Database-backed disc/track storage (SQLite)              ││
+│  │  - Queries daemon for drive state via WebSocket             ││
 │  │  - HandBrakeCLI for transcoding                             ││
 │  │  - Integrates with Plex media server                        ││
 │  └─────────────────────────────────────────────────────────────┘│
 └─────────────────────────────────────────────────────────────────┘
 ```
 
+### Key Design Decisions
+
+- **OpticalDrive Model**: The daemon maintains an `OpticalDrive` dataclass as the single source of truth for drive state (empty, disc inserted, scanning, scanned, ripping). The webapp queries this state via WebSocket instead of maintaining its own copy.
+
+- **Fingerprint System**: When a disc is inserted, the daemon generates a lightweight fingerprint (<5 sec) based on disc structure:
+  - DVDs: Hash of VIDEO_TS/*.IFO files
+  - Blu-rays: Hash of BDMV/PLAYLIST/*.mpls files
+  - CDs: Volume name (future: TOC hash)
+
+  This allows instant recognition of known discs without re-scanning.
+
+- **Bidirectional WebSocket**: The daemon pushes events (disc inserted, scan complete) to the webapp, and the webapp can query the daemon (get drive status, list drives). This replaces the previous one-way event model.
+
+- **Database Schema**: The webapp stores disc and track metadata in SQLite with a `fingerprint` column (unique index) for quick lookups.
+
 ## Features
 
 - **Disc Detection**: Automatic detection when optical media is inserted
+- **Disc Fingerprinting**: Fast identification of known discs without re-scanning
 - **Track Scanning**: MakeMKV-powered disc scanning with track classification
 - **Track Selection**: Web UI for selecting which tracks to rip
 - **Task Queue**: Queue multiple rip tasks with progress monitoring
+- **Database Storage**: Persistent disc and track metadata with fingerprint-based lookups
 - **Transcoding**: HandBrakeCLI integration for format conversion (post-launch)
 - **Plex Integration**: Automatic organization for Plex media server (post-launch)
 
