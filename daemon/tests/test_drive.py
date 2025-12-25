@@ -139,3 +139,26 @@ class TestOpticalDriveStateMutations:
         assert data["state"] == "disc_inserted"
         assert data["disc_volume"] == "MY_MOVIE"
         assert data["disc_type"] == "bluray"
+
+
+class TestOpticalDriveFingerprintIntegration:
+    """Tests for fingerprint integration in OpticalDrive."""
+
+    def test_set_fingerprint_stores_value(self):
+        """set_fingerprint() stores the fingerprint."""
+        drive = OpticalDrive(daemon_id="test", device="/dev/rdisk0")
+        drive.insert_disc(volume="MY_MOVIE", disc_type="bluray")
+
+        drive.set_fingerprint("abc123def456")
+
+        assert drive.fingerprint == "abc123def456"
+
+    def test_fingerprint_included_in_to_dict(self):
+        """Fingerprint is included in to_dict() output."""
+        drive = OpticalDrive(daemon_id="test", device="/dev/rdisk0")
+        drive.insert_disc(volume="MY_MOVIE", disc_type="bluray")
+        drive.set_fingerprint("abc123def456")
+
+        data = drive.to_dict()
+
+        assert data["fingerprint"] == "abc123def456"

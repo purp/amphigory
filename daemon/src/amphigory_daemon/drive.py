@@ -148,6 +148,16 @@ class OpticalDrive:
         self.scan_error = error
         self.last_updated = datetime.now()
 
+    def set_fingerprint(self, fingerprint: str) -> None:
+        """
+        Set the disc fingerprint.
+
+        Args:
+            fingerprint: Hex string fingerprint from generate_fingerprint()
+        """
+        self.fingerprint = fingerprint
+        self.last_updated = datetime.now()
+
     def to_dict(self) -> dict:
         """
         Convert to JSON-serializable dictionary.
