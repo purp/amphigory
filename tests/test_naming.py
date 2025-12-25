@@ -70,6 +70,58 @@ class TestGenerateTrackFilename:
         )
         assert filename == 'The Matrix (1999) - fr.mkv'
 
+    def test_english_variants_no_language_suffix(self):
+        """Test that en, en-us, and english variants don't get language suffix."""
+        # Test 'en'
+        filename = generate_track_filename(
+            track_type='main_feature',
+            movie_title='The Matrix',
+            year=1999,
+            track_name='Main Feature',
+            language='en'
+        )
+        assert filename == 'The Matrix (1999).mkv'
+
+        # Test 'en-us'
+        filename = generate_track_filename(
+            track_type='main_feature',
+            movie_title='The Matrix',
+            year=1999,
+            track_name='Main Feature',
+            language='en-us'
+        )
+        assert filename == 'The Matrix (1999).mkv'
+
+        # Test 'english'
+        filename = generate_track_filename(
+            track_type='main_feature',
+            movie_title='The Matrix',
+            year=1999,
+            track_name='Main Feature',
+            language='english'
+        )
+        assert filename == 'The Matrix (1999).mkv'
+
+        # Test 'EN-US' (case insensitive)
+        filename = generate_track_filename(
+            track_type='main_feature',
+            movie_title='The Matrix',
+            year=1999,
+            track_name='Main Feature',
+            language='EN-US'
+        )
+        assert filename == 'The Matrix (1999).mkv'
+
+        # Test 'English' (case insensitive)
+        filename = generate_track_filename(
+            track_type='main_feature',
+            movie_title='The Matrix',
+            year=1999,
+            track_name='Main Feature',
+            language='English'
+        )
+        assert filename == 'The Matrix (1999).mkv'
+
     def test_trailer_naming(self):
         """Test trailer naming: 'Name-trailer.mkv'."""
         filename = generate_track_filename(

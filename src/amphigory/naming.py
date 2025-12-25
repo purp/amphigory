@@ -77,8 +77,8 @@ def generate_track_filename(
 
     # Main feature naming
     if track_type == 'main_feature':
-        # Check if this is an alternate language version
-        if language != 'en':
+        # Check if this is an alternate language version (not en/en-us/english)
+        if language and language.lower() not in ('en', 'en-us', 'english'):
             return f"{sanitized_title} ({year}) - {language}.mkv"
         else:
             return f"{sanitized_title} ({year}).mkv"

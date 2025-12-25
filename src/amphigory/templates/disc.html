@@ -86,6 +86,48 @@
 let scanResult = null;
 let draggedRow = null;
 
+// Plex naming helper functions (mirror Python naming.py logic)
+const PLEX_SUFFIXES = {
+    'behind_the_scenes': '-behindthescenes',
+    'deleted_scenes': '-deleted',
+    'featurettes': '-featurette',
+    'interviews': '-interview',
+    'scenes': '-scene',
+    'shorts': '-short',
+    'trailers': '-trailer',
+    'other': '-other',
+};
+
+function sanitizeFilename(name) {
+    // Remove invalid filename characters
+    const invalidChars = '<>:"/\\|?*';
+    let result = name;
+    for (const char of invalidChars) {
+        result = result.split(char).join('');
+    }
+    return result;
+}
+
+function generateTrackFilename(trackType, movieTitle, year, trackName, language) {
+    // Sanitize inputs
+    const sanitizedTitle = sanitizeFilename(movieTitle);
+    const sanitizedTrackName = sanitizeFilename(trackName);
+
+    // Main feature naming
+    if (trackType === 'main_feature') {
+        // Check if this is an alternate language version (not en/en-us/english)
+        if (language && !['en', 'en-us', 'english'].includes(language.toLowerCase())) {
+            return `${sanitizedTitle} (${year}) - ${language}.mkv`;
+        } else {
+            return `${sanitizedTitle} (${year}).mkv`;
+        }
+    }
+
+    // Extras naming: "Track Name-suffix.mkv"
+    const suffix = PLEX_SUFFIXES[trackType] || '-other';
+    return `${sanitizedTrackName}${suffix}.mkv`;
+}
+
 // Drag and drop handlers
 function handleDragStart(e) {
     // Clear any stale drag state (e.g., from cancelled drags)
@@ -441,6 +483,11 @@ async function submitRipTasks(event) {
         return;
     }
 
+    if (!discTitle || !discYear) {
+        alert('Please enter a title and year for Plex-compatible naming.');
+        return;
+    }
+
     const ripButton = document.getElementById('rip-button');
     ripButton.disabled = true;
     ripButton.textContent = 'Creating tasks...';
@@ -448,15 +495,37 @@ async function submitRipTasks(event) {
     try {
         for (const trackNumber of selectedTracks) {
             const track = scanResult.tracks.find(t => (t.number || scanResult.tracks.indexOf(t)) === trackNumber);
+
+            // Get track name from input field
+            const trackNameInput = document.querySelector(`input[name="track_name_${trackNumber}"]`);
+            const trackName = trackNameInput?.value || getDefaultTrackName(track);
+
+            // Get classification (convert extra/trailer/menu to proper type)
+            let trackType = track.classification || 'other';
+            // Map generic 'extra' to 'other' for Plex naming
+            if (trackType === 'extra') {
+                trackType = 'other';
+            }
+
+            // Generate Plex-compatible filename
+            // For now, assume language is 'en' - in future this could be configurable
+            const outputFilename = generateTrackFilename(
+                trackType,
+                discTitle,
+                parseInt(discYear),
+                trackName,
+                'en'
+            );
+
             await fetch('/api/tasks/rip', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
                     track_number: trackNumber,
-                    output_filename: `${scanResult.disc_name}_track${trackNumber}.mkv`,
+                    output_filename: outputFilename,
                     output_directory: outputDir,
                     disc_title: discTitle,
-                    disc_year: discYear ? parseInt(discYear) : null,
+                    disc_year: parseInt(discYear),
                 }),
             });
         }
