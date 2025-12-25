@@ -1,5 +1,17 @@
 # Amphigory Implementation Plan
 
+> **Status:** ✅ SUPERSEDED - Architecture evolved to daemon+webapp split
+>
+> This original plan was created before deciding to split into a native macOS daemon
+> and Docker-hosted webapp. The foundational tasks (1-3, 8-11) were completed.
+> Tasks 4-7 (preset management, job queue, ripping/transcoding services) were
+> reimplemented differently in the daemon architecture. Tasks 12-20 were either
+> completed differently or are tracked in post-launch-followups.md.
+>
+> See `2025-12-22-amphigory-daemon-implementation.md` for the actual daemon work.
+
+---
+
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
 **Goal:** Build a webapp that automates optical media ripping, transcoding, and Plex library organization.

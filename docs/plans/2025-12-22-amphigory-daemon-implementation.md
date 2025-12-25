@@ -1,5 +1,14 @@
 # Amphigory Host Daemon Implementation Plan
 
+> **Status:** ✅ COMPLETED on 2024-12-24
+>
+> All 14 tasks completed (213 daemon tests passing). The daemon runs as a macOS
+> menu bar app with disc detection, task processing, WebSocket communication,
+> and menu bar icon states. Packaging (Task 14) is functional but has known
+> issues with py2app/Python 3.14 tracked in post-launch-followups.md.
+
+---
+
 **Date:** 2025-12-22
 
 **Design Document:** `2025-12-22-amphigory-daemon-design.md`
