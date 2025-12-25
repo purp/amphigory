@@ -58,7 +58,15 @@ class ConnectionManager:
             raise KeyError(f"Daemon {daemon_id} not connected")
 
         websocket = self._daemon_connections[daemon_id]
-        await websocket.send_text(json.dumps(message))
+        try:
+            await websocket.send_text(json.dumps(message))
+        except RuntimeError as e:
+            # WebSocket was closed - clean up stale connection
+            self.unregister_daemon(daemon_id)
+            # Also remove from daemons registry
+            from amphigory.api.settings import _daemons
+            _daemons.pop(daemon_id, None)
+            raise KeyError(f"Daemon {daemon_id} not connected (WebSocket closed)") from e
 
     async def request_from_daemon(
         self,
