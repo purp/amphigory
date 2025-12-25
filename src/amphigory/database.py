@@ -9,13 +9,16 @@ SCHEMA = """
 -- Processed discs
 CREATE TABLE IF NOT EXISTS discs (
     id INTEGER PRIMARY KEY,
+    fingerprint TEXT UNIQUE,
     title TEXT NOT NULL,
     year INTEGER,
     imdb_id TEXT,
     disc_type TEXT,
     disc_release_year INTEGER,
     edition_notes TEXT,
+    scan_data TEXT,
     processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    scanned_at TIMESTAMP,
     notes TEXT
 );
 
