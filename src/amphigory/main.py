@@ -231,16 +231,35 @@ async def websocket_endpoint(websocket: WebSocket):
                             # Clear cached scan result
                             from amphigory.api.disc import clear_current_scan
                             clear_current_scan()
+                        elif event == "fingerprinted":
+                            fingerprint = message.get("fingerprint")
+                            uvi_logger.info(f"Disc fingerprinted: {fingerprint[:16] if fingerprint else 'None'}... (daemon: {daemon_id})")
+
+                            # Look up disc in database
+                            from amphigory.api.disc_repository import get_disc_by_fingerprint
+                            disc = await get_disc_by_fingerprint(app.state.db, fingerprint)
+                            if disc:
+                                uvi_logger.info(f"Known disc: {disc['title']} ({disc['year']})")
 
                         # Broadcast to browser clients
-                        await manager.broadcast({
+                        broadcast_msg = {
                             "type": "disc_event",
                             "event": event,
                             "device": message.get("device"),
                             "volume_name": message.get("volume_name"),
                             "volume_path": message.get("volume_path"),
                             "daemon_id": daemon_id,
-                        })
+                        }
+                        # Include fingerprint info if available
+                        if event == "fingerprinted":
+                            broadcast_msg["fingerprint"] = message.get("fingerprint")
+                            if disc:
+                                broadcast_msg["known_disc"] = {
+                                    "title": disc["title"],
+                                    "year": disc["year"],
+                                    "disc_type": disc["disc_type"],
+                                }
+                        await manager.broadcast(broadcast_msg)
 
                 elif msg_type == "response":
                     # Handle response from daemon

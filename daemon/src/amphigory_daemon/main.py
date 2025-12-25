@@ -503,6 +503,16 @@ class AmphigoryDaemon(rumps.App):
                 fingerprint = generate_fingerprint(volume_path, disc_type, volume_name)
                 self.optical_drive.set_fingerprint(fingerprint)
                 logger.info(f"Generated fingerprint: {fingerprint[:16]}...")
+
+                # Send fingerprint event to webapp and local browsers
+                if self.webapp_client and self.webapp_client.is_connected():
+                    asyncio.create_task(
+                        self.webapp_client.send_fingerprint_event(fingerprint, device)
+                    )
+                if self.ws_server:
+                    asyncio.create_task(
+                        self.ws_server.send_fingerprint_event(fingerprint, device)
+                    )
             except FingerprintError as e:
                 logger.warning(f"Failed to generate fingerprint: {e}")
 

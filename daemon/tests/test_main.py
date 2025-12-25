@@ -1192,6 +1192,7 @@ class TestOpticalDriveIntegration:
         mock_webapp_client = MagicMock()
         mock_webapp_client.is_connected.return_value = True
         mock_webapp_client.send_disc_event = AsyncMock()
+        mock_webapp_client.send_fingerprint_event = AsyncMock()
         daemon.webapp_client = mock_webapp_client
 
         # Create mock DVD structure
@@ -1210,6 +1211,9 @@ class TestOpticalDriveIntegration:
             "inserted", "/dev/rdisk4", "TEST_DISC"
         )
 
+        # Verify send_fingerprint_event was also called
+        mock_webapp_client.send_fingerprint_event.assert_called_once()
+
     @pytest.mark.asyncio
     async def test_ws_server_send_disc_event_on_insert(self, tmp_path):
         """ws_server.send_disc_event is called when disc is inserted."""
@@ -1225,6 +1229,7 @@ class TestOpticalDriveIntegration:
         # Mock ws_server
         mock_ws_server = MagicMock()
         mock_ws_server.send_disc_event = AsyncMock()
+        mock_ws_server.send_fingerprint_event = AsyncMock()
         daemon.ws_server = mock_ws_server
 
         # Create mock DVD structure
@@ -1242,6 +1247,9 @@ class TestOpticalDriveIntegration:
         mock_ws_server.send_disc_event.assert_called_once_with(
             "inserted", "/dev/rdisk4", "TEST_DISC"
         )
+
+        # Verify send_fingerprint_event was also called
+        mock_ws_server.send_fingerprint_event.assert_called_once()
 
     @pytest.mark.asyncio
     async def test_webapp_client_send_disc_event_on_eject(self):

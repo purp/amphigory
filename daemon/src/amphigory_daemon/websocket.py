@@ -159,6 +159,28 @@ class WebSocketServer:
 
         await self.broadcast(message)
 
+    async def send_fingerprint_event(
+        self,
+        fingerprint: str,
+        device: Optional[str] = None,
+    ) -> None:
+        """
+        Send fingerprint generated event.
+
+        Args:
+            fingerprint: The generated disc fingerprint
+            device: Device path (e.g., "/dev/rdisk4")
+        """
+        message = {
+            "type": "disc",
+            "event": "fingerprinted",
+            "fingerprint": fingerprint,
+        }
+        if device is not None:
+            message["device"] = device
+
+        await self.broadcast(message)
+
     async def send_heartbeat(
         self,
         queue_depth: int,
@@ -398,6 +420,27 @@ class WebAppClient:
             message["volume_name"] = volume_name
         if volume_path is not None:
             message["volume_path"] = volume_path
+        await self._send(message)
+
+    async def send_fingerprint_event(
+        self,
+        fingerprint: str,
+        device: Optional[str] = None,
+    ) -> None:
+        """
+        Send fingerprint generated event to webapp.
+
+        Args:
+            fingerprint: The generated disc fingerprint
+            device: Device path (e.g., "/dev/rdisk4")
+        """
+        message = {
+            "type": "disc_event",
+            "event": "fingerprinted",
+            "fingerprint": fingerprint,
+        }
+        if device is not None:
+            message["device"] = device
         await self._send(message)
 
     async def start_heartbeat_loop(self, interval: float) -> None:

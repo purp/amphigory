@@ -126,6 +126,16 @@ body {
     font-weight: 500;
 }
 
+.status-message.disc-known {
+    color: var(--primary);
+    font-weight: 500;
+}
+
+.fingerprint-pending {
+    color: var(--text-muted);
+    font-style: italic;
+}
+
 .status-detail {
     font-size: 0.875rem;
     color: var(--text-muted);

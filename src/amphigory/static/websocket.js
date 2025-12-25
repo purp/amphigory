@@ -130,7 +130,7 @@ class AmphigoryWebSocket {
     }
 
     /**
-     * Handle disc_event message (insert/eject)
+     * Handle disc_event message (insert/eject/fingerprinted)
      */
     handleDiscEvent(data) {
         console.log('Disc event:', data.event, data.device);
@@ -143,7 +143,35 @@ class AmphigoryWebSocket {
                     Disc inserted: ${data.volume_name || 'Unknown'}
                 </p>
                 <p class="status-detail">Device: ${data.device}</p>
+                <p class="status-detail fingerprint-pending">Generating fingerprint...</p>
             `;
+        } else if (data.event === 'fingerprinted') {
+            // Update to show fingerprint result
+            const shortFingerprint = data.fingerprint ? data.fingerprint.substring(0, 16) + '...' : 'None';
+            let statusHtml = `<p class="status-detail">Fingerprint: ${shortFingerprint}</p>`;
+
+            if (data.known_disc) {
+                statusHtml = `
+                    <p class="status-message disc-known">
+                        Known disc: ${data.known_disc.title} (${data.known_disc.year || 'N/A'})
+                    </p>
+                    <p class="status-detail">Type: ${data.known_disc.disc_type || 'Unknown'}</p>
+                    <p class="status-detail">Fingerprint: ${shortFingerprint}</p>
+                `;
+            } else {
+                statusHtml = `
+                    <p class="status-detail">New disc (not in database)</p>
+                    <p class="status-detail">Fingerprint: ${shortFingerprint}</p>
+                `;
+            }
+
+            // Replace fingerprint-pending with result, or append if element not found
+            const pendingEl = this.discInfo.querySelector('.fingerprint-pending');
+            if (pendingEl) {
+                pendingEl.outerHTML = statusHtml;
+            } else {
+                this.discInfo.insertAdjacentHTML('beforeend', statusHtml);
+            }
         } else if (data.event === 'ejected') {
             this.discInfo.innerHTML = `
                 <p class="status-message">No disc detected</p>

@@ -130,6 +130,33 @@ class TestWebSocketMessages:
             await server.stop()
 
     @pytest.mark.asyncio
+    async def test_send_fingerprint_event(self):
+        """send_fingerprint_event broadcasts fingerprint generated event."""
+        from amphigory_daemon.websocket import WebSocketServer
+
+        server = WebSocketServer(port=19860, heartbeat_interval=10)
+        await server.start()
+
+        try:
+            async with websockets.connect("ws://localhost:19860") as ws:
+                await asyncio.sleep(0.1)
+
+                await server.send_fingerprint_event(
+                    fingerprint="abc123def456",
+                    device="/dev/rdisk4",
+                )
+
+                msg = await asyncio.wait_for(ws.recv(), timeout=1.0)
+                data = json.loads(msg)
+
+                assert data["type"] == "disc"
+                assert data["event"] == "fingerprinted"
+                assert data["fingerprint"] == "abc123def456"
+                assert data["device"] == "/dev/rdisk4"
+        finally:
+            await server.stop()
+
+    @pytest.mark.asyncio
     async def test_send_heartbeat(self):
         """send_heartbeat broadcasts daemon status."""
         from amphigory_daemon.websocket import WebSocketServer
