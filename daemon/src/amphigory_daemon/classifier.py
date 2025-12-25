@@ -28,13 +28,18 @@ def _parse_duration_to_seconds(duration: str) -> int:
         duration: Duration string in format HH:MM:SS
 
     Returns:
-        Total seconds as integer
+        Total seconds as integer, or 0 if parsing fails
     """
-    parts = duration.split(":")
-    hours = int(parts[0])
-    minutes = int(parts[1])
-    seconds = int(parts[2])
-    return hours * 3600 + minutes * 60 + seconds
+    try:
+        parts = duration.split(":")
+        if len(parts) != 3:
+            return 0
+        hours = int(parts[0])
+        minutes = int(parts[1])
+        seconds = int(parts[2])
+        return hours * 3600 + minutes * 60 + seconds
+    except (ValueError, IndexError):
+        return 0
 
 
 def _calculate_score(track: ScannedTrack) -> float:

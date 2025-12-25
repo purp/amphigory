@@ -425,3 +425,19 @@ class TestClassifyExtra:
         )
 
         assert _classify_extra(track) == "deleted_scenes"
+
+    def test_classify_extra_long_featurette(self):
+        """Tracks over 1 hour that aren't main features are classified as featurettes."""
+        track = ScannedTrack(
+            number=1,
+            duration="01:30:00",  # 1.5 hours - long but not main feature
+            size_bytes=5_000_000_000,
+            chapters=5,  # Not enough chapters to be main
+            chapter_count=5,
+            resolution="1920x1080",
+            audio_streams=[],
+            subtitle_streams=[],
+            segment_map="1",
+        )
+
+        assert _classify_extra(track) == "featurettes"
