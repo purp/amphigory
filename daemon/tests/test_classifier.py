@@ -441,3 +441,80 @@ class TestClassifyExtra:
         )
 
         assert _classify_extra(track) == "featurettes"
+
+
+class TestSmartOrdering:
+    def test_order_main_first_then_alternates_then_by_duration(self):
+        """Smart ordering puts main first, alternates next, then by duration."""
+        from amphigory_daemon.classifier import smart_order_tracks, classify_tracks
+        from amphigory_daemon.models import ScannedTrack, AudioStream
+
+        tracks = [
+            ScannedTrack(
+                number=0,
+                duration="00:02:00",  # Trailer - 120s
+                size_bytes=100_000_000,
+                chapters=1,
+                chapter_count=1,
+                resolution="1920x1080",
+                audio_streams=[AudioStream(language="eng", codec="AC3", channels=2)],
+                subtitle_streams=[],
+                segment_map="1",
+            ),
+            ScannedTrack(
+                number=1,
+                duration="01:45:00",  # Main - 1h 45m
+                size_bytes=5_000_000_000,
+                chapters=24,
+                chapter_count=24,
+                resolution="1920x1080",
+                audio_streams=[AudioStream(language="eng", codec="DTS-HD", channels=8)],
+                subtitle_streams=[],
+                segment_map="2,3,4",
+            ),
+            ScannedTrack(
+                number=2,
+                duration="00:15:00",  # 15 min featurette
+                size_bytes=500_000_000,
+                chapters=3,
+                chapter_count=3,
+                resolution="1920x1080",
+                audio_streams=[AudioStream(language="eng", codec="AC3", channels=2)],
+                subtitle_streams=[],
+                segment_map="5",
+            ),
+            ScannedTrack(
+                number=3,
+                duration="01:45:00",  # Alternate main - 1h 45m
+                size_bytes=5_000_000_000,
+                chapters=24,
+                chapter_count=24,
+                resolution="1920x1080",
+                audio_streams=[AudioStream(language="fre", codec="DTS-HD", channels=8)],
+                subtitle_streams=[],
+                segment_map="6,7,8",
+            ),
+            ScannedTrack(
+                number=4,
+                duration="00:30:00",  # 30 min featurette
+                size_bytes=800_000_000,
+                chapters=5,
+                chapter_count=5,
+                resolution="1920x1080",
+                audio_streams=[AudioStream(language="eng", codec="AC3", channels=2)],
+                subtitle_streams=[],
+                segment_map="9",
+            ),
+        ]
+
+        classified = classify_tracks(tracks)
+        ordered = smart_order_tracks(tracks, classified)
+
+        # Main first
+        assert ordered[0].number == 1
+        # Alternate second
+        assert ordered[1].number == 3
+        # Then by duration descending
+        assert ordered[2].number == 4   # 30 min
+        assert ordered[3].number == 2   # 15 min
+        assert ordered[4].number == 0   # 2 min trailer

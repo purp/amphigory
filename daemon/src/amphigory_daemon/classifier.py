@@ -197,6 +197,54 @@ def identify_alternate_mains(
     return alternates
 
 
+def smart_order_tracks(
+    tracks: List[ScannedTrack],
+    classified: Dict[int, ClassifiedTrack]
+) -> List[ScannedTrack]:
+    """
+    Order tracks for optimal processing:
+    1. Main feature (native language - lowest track number among mains)
+    2. Alternate language main features (by track number)
+    3. All others by duration descending
+
+    Args:
+        tracks: List of all scanned tracks
+        classified: Dictionary of classified tracks
+
+    Returns:
+        Ordered list of tracks
+    """
+    # Find the main feature
+    main_track = None
+    for num, ct in classified.items():
+        if ct.classification == "main_feature":
+            main_track = ct.track
+            break
+
+    # Get alternate main features
+    alternates = identify_alternate_mains(tracks, classified)
+
+    # Build ordered list
+    ordered = []
+
+    # 1. Main first (if exists)
+    if main_track is not None:
+        ordered.append(main_track)
+
+    # 2. Alternates sorted by track number
+    alternate_tracks = [t for t in tracks if t.number in alternates]
+    alternate_tracks.sort(key=lambda t: t.number)
+    ordered.extend(alternate_tracks)
+
+    # 3. All others sorted by duration descending
+    main_and_alternates = set([main_track.number] if main_track else []) | set(alternates)
+    other_tracks = [t for t in tracks if t.number not in main_and_alternates]
+    other_tracks.sort(key=lambda t: _parse_duration_to_seconds(t.duration), reverse=True)
+    ordered.extend(other_tracks)
+
+    return ordered
+
+
 def classify_tracks(tracks: List[ScannedTrack]) -> Dict[int, ClassifiedTrack]:
     """Classify tracks using multi-factor weighted scoring.
 
