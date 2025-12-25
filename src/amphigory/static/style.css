@@ -443,6 +443,30 @@ body {
     margin-bottom: 1.5rem;
 }
 
+.disc-info {
+    margin-bottom: 1.5rem;
+}
+
+.disc-info h3 {
+    margin-bottom: 1rem;
+}
+
+.form-row {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 0.75rem;
+}
+
+.form-row label {
+    min-width: 80px;
+    font-weight: 500;
+}
+
+.setting-input-small {
+    width: 100px;
+}
+
 .scanning {
     display: flex;
     align-items: center;

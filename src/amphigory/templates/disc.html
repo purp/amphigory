@@ -15,6 +15,21 @@
         </div>
     </section>
 
+    <section class="disc-info card" id="disc-info-section" style="display: none;">
+        <h3>Disc Information</h3>
+        <div class="form-row">
+            <label for="disc-title">Title:</label>
+            <input type="text" id="disc-title" name="disc_title"
+                   class="setting-input" placeholder="Enter disc title">
+        </div>
+        <div class="form-row">
+            <label for="disc-year">Year:</label>
+            <input type="number" id="disc-year" name="disc_year"
+                   class="setting-input setting-input-small" placeholder="YYYY"
+                   min="1900" max="2100">
+        </div>
+    </section>
+
     <section class="tracks-section card" id="tracks-section" style="display: none;">
         <div class="tracks-header">
             <h2>Tracks</h2>
@@ -260,6 +275,13 @@ function displayScanResult(result) {
         <button class="btn btn-secondary" onclick="startScan()">Rescan</button>
     `;
 
+    // Show disc info section
+    const infoSection = document.getElementById('disc-info-section');
+    infoSection.style.display = 'block';
+
+    // Populate title (editable)
+    document.getElementById('disc-title').value = result.disc_name || '';
+
     const tracksSection = document.getElementById('tracks-section');
     tracksSection.style.display = 'block';
 
@@ -351,6 +373,8 @@ async function submitRipTasks(event) {
     const selectedTracks = Array.from(document.querySelectorAll('input[name="tracks"]:checked'))
         .map(cb => parseInt(cb.value));
     const outputDir = document.getElementById('output-dir').value;
+    const discTitle = document.getElementById('disc-title').value;
+    const discYear = document.getElementById('disc-year').value;
 
     if (selectedTracks.length === 0) {
         alert('Please select at least one track to rip.');
@@ -371,6 +395,8 @@ async function submitRipTasks(event) {
                     track_number: trackNumber,
                     output_filename: `${scanResult.disc_name}_track${trackNumber}.mkv`,
                     output_directory: outputDir,
+                    disc_title: discTitle,
+                    disc_year: discYear ? parseInt(discYear) : null,
                 }),
             });
         }
