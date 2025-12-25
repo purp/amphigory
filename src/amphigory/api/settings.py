@@ -33,6 +33,7 @@ class RegisteredDaemon(BaseModel):
     disc_inserted: bool = False
     disc_device: Optional[str] = None
     disc_volume: Optional[str] = None
+    fingerprint: Optional[str] = None  # Disc fingerprint from OpticalDrive model
 
 
 # In-memory daemon registry (will be replaced by proper storage later)

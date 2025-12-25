@@ -72,7 +72,7 @@ async function checkDiscStatus() {
         const scanSection = document.getElementById('scan-section');
 
         if (data.has_disc) {
-            // Check if we have cached scan results
+            // Check if we have cached scan results in memory
             try {
                 const scanResponse = await fetch('/api/disc/current-scan');
                 if (scanResponse.ok) {
@@ -81,7 +81,34 @@ async function checkDiscStatus() {
                     return;
                 }
             } catch (err) {
-                // No cached scan - continue to show scan button
+                // No cached scan in memory - check database by fingerprint
+            }
+
+            // Check if disc is known in database by fingerprint
+            try {
+                const lookupResponse = await fetch('/api/disc/lookup-fingerprint');
+                if (lookupResponse.ok) {
+                    const discInfo = await lookupResponse.json();
+                    if (discInfo.scan_data) {
+                        // Show option to use cached scan or rescan
+                        statusText.textContent = `Known disc: ${discInfo.title}`;
+                        const scannedDate = discInfo.scanned_at ? new Date(discInfo.scanned_at).toLocaleDateString() : 'previously';
+                        scanSection.innerHTML = `
+                            <p class="text-muted">Previously scanned on ${scannedDate}</p>
+                            <button class="btn btn-primary" onclick="loadCachedScan()">
+                                Load Previous Scan
+                            </button>
+                            <button class="btn btn-secondary" onclick="startScan()" style="margin-left: 0.5rem;">
+                                Rescan Disc
+                            </button>
+                        `;
+                        // Store disc info for later use
+                        window.knownDiscInfo = discInfo;
+                        return;
+                    }
+                }
+            } catch (err) {
+                // Disc not in database - continue to show scan button
             }
 
             // No cached scan - show scan button
@@ -103,6 +130,17 @@ async function checkDiscStatus() {
         console.error('Error checking disc status:', error);
         document.getElementById('disc-status-text').textContent = 'Error checking disc status';
     }
+}
+
+// Load cached scan data from database
+function loadCachedScan() {
+    if (!window.knownDiscInfo || !window.knownDiscInfo.scan_data) {
+        console.error('No cached scan data available');
+        return;
+    }
+
+    scanResult = window.knownDiscInfo.scan_data;
+    displayScanResult(scanResult);
 }
 
 // Start a scan

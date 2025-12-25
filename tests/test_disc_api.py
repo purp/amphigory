@@ -484,3 +484,208 @@ class TestScanCache:
             assert "tracks scanned" not in html
         finally:
             del _daemons["test-daemon"]
+
+
+class TestFingerprintIntegration:
+    """Tests for fingerprint-based disc lookup and caching."""
+
+    def test_lookup_fingerprint_with_explicit_fingerprint(self, client, tasks_dir):
+        """Can lookup disc by providing explicit fingerprint."""
+        from amphigory.database import Database
+        import asyncio
+
+        # Initialize database
+        db_path = tasks_dir.parent / "amphigory.db"
+        db = Database(db_path)
+        asyncio.run(db.initialize())
+
+        # Insert a known disc
+        async def setup():
+            async with db.connection() as conn:
+                await conn.execute(
+                    """INSERT INTO discs (title, fingerprint, year, disc_type)
+                       VALUES (?, ?, ?, ?)""",
+                    ("Test Movie", "fp_test123", 2020, "bluray"),
+                )
+                await conn.commit()
+
+        asyncio.run(setup())
+
+        # Lookup by fingerprint
+        response = client.get("/api/disc/lookup-fingerprint?fingerprint=fp_test123")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["title"] == "Test Movie"
+        assert data["fingerprint"] == "fp_test123"
+        assert data["year"] == 2020
+
+    def test_lookup_fingerprint_returns_404_when_not_found(self, client, tasks_dir):
+        """Returns 404 when fingerprint not in database."""
+        from amphigory.database import Database
+        import asyncio
+
+        # Initialize database
+        db_path = tasks_dir.parent / "amphigory.db"
+        db = Database(db_path)
+        asyncio.run(db.initialize())
+
+        response = client.get("/api/disc/lookup-fingerprint?fingerprint=nonexistent")
+
+        assert response.status_code == 404
+        assert "not found" in response.json()["detail"].lower()
+
+    def test_lookup_fingerprint_uses_current_disc_when_no_param(self, client, tasks_dir):
+        """Uses current disc's fingerprint when no parameter provided."""
+        from amphigory.api.settings import _daemons, RegisteredDaemon
+        from amphigory.database import Database
+        from datetime import datetime
+        import asyncio
+
+        # Initialize database
+        db_path = tasks_dir.parent / "amphigory.db"
+        db = Database(db_path)
+        asyncio.run(db.initialize())
+
+        # Insert a known disc
+        async def setup():
+            async with db.connection() as conn:
+                await conn.execute(
+                    """INSERT INTO discs (title, fingerprint)
+                       VALUES (?, ?)""",
+                    ("Current Disc", "fp_current456"),
+                )
+                await conn.commit()
+
+        asyncio.run(setup())
+
+        # Register daemon with disc that has a fingerprint
+        daemon = RegisteredDaemon(
+            daemon_id="test-daemon",
+            makemkvcon_path="/usr/local/bin/makemkvcon",
+            webapp_basedir="/data",
+            connected_at=datetime.now(),
+            last_seen=datetime.now(),
+            disc_inserted=True,
+        )
+        daemon.fingerprint = "fp_current456"
+        _daemons["test-daemon"] = daemon
+
+        try:
+            # Lookup without providing fingerprint
+            response = client.get("/api/disc/lookup-fingerprint")
+
+            assert response.status_code == 200
+            data = response.json()
+            assert data["title"] == "Current Disc"
+        finally:
+            del _daemons["test-daemon"]
+
+    def test_scan_result_saves_to_database_with_fingerprint(self, client, tasks_dir):
+        """Scan result is saved to database when fingerprint is available."""
+        from amphigory.api.settings import _daemons, RegisteredDaemon
+        from amphigory.database import Database
+        from datetime import datetime
+        import asyncio
+
+        # Initialize database
+        db_path = tasks_dir.parent / "amphigory.db"
+        db = Database(db_path)
+        asyncio.run(db.initialize())
+
+        # Register daemon with disc that has a fingerprint
+        daemon = RegisteredDaemon(
+            daemon_id="test-daemon",
+            makemkvcon_path="/usr/local/bin/makemkvcon",
+            webapp_basedir="/data",
+            connected_at=datetime.now(),
+            last_seen=datetime.now(),
+            disc_inserted=True,
+        )
+        daemon.fingerprint = "fp_saved789"
+        _daemons["test-daemon"] = daemon
+
+        # Create a completed scan task
+        result_file = tasks_dir / "complete" / "scan-save-test.json"
+        with open(result_file, "w") as f:
+            json.dump({
+                "task_id": "scan-save-test",
+                "status": "success",
+                "result": {
+                    "disc_name": "SAVED_DISC",
+                    "disc_type": "bluray",
+                    "tracks": [{"number": 1, "duration": "2:00:00"}],
+                },
+                "completed_at": "2024-01-15T10:30:00",
+            }, f)
+
+        try:
+            # Request the scan result (should save to DB)
+            response = client.get("/api/disc/scan-result?task_id=scan-save-test")
+            assert response.status_code == 200
+
+            # Verify it was saved to database
+            async def verify():
+                async with db.connection() as conn:
+                    cursor = await conn.execute(
+                        "SELECT * FROM discs WHERE fingerprint = ?",
+                        ("fp_saved789",)
+                    )
+                    row = await cursor.fetchone()
+                    assert row is not None
+                    assert row["title"] == "SAVED_DISC"
+                    assert row["scan_data"] is not None
+                    scan_data = json.loads(row["scan_data"])
+                    assert scan_data["disc_name"] == "SAVED_DISC"
+
+            asyncio.run(verify())
+        finally:
+            del _daemons["test-daemon"]
+
+    def test_status_html_shows_known_disc_with_fingerprint(self, client, tasks_dir):
+        """Status HTML shows 'Known disc' when fingerprint matches database."""
+        from amphigory.api.settings import _daemons, RegisteredDaemon
+        from amphigory.database import Database
+        from datetime import datetime
+        import asyncio
+
+        # Initialize database
+        db_path = tasks_dir.parent / "amphigory.db"
+        db = Database(db_path)
+        asyncio.run(db.initialize())
+
+        # Insert a known disc
+        async def setup():
+            async with db.connection() as conn:
+                await conn.execute(
+                    """INSERT INTO discs (title, fingerprint)
+                       VALUES (?, ?)""",
+                    ("The Matrix", "fp_matrix999"),
+                )
+                await conn.commit()
+
+        asyncio.run(setup())
+
+        # Register daemon with disc that has matching fingerprint
+        daemon = RegisteredDaemon(
+            daemon_id="test-daemon",
+            makemkvcon_path="/usr/local/bin/makemkvcon",
+            webapp_basedir="/data",
+            connected_at=datetime.now(),
+            last_seen=datetime.now(),
+            disc_inserted=True,
+            disc_volume="MATRIX_DISC",
+        )
+        daemon.fingerprint = "fp_matrix999"
+        _daemons["test-daemon"] = daemon
+
+        try:
+            response = client.get("/api/disc/status-html")
+
+            assert response.status_code == 200
+            html = response.text
+
+            # Should show known disc info
+            assert "Known disc: The Matrix" in html
+        finally:
+            del _daemons["test-daemon"]

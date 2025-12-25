@@ -17,6 +17,7 @@ from pydantic import BaseModel
 
 from amphigory.api.common import generate_task_id
 from amphigory.api.settings import _daemons
+from amphigory.api import disc_repository
 
 router = APIRouter(prefix="/api/disc", tags=["disc"])
 
@@ -46,6 +47,14 @@ def get_tasks_dir() -> Path:
     """Get the tasks directory from environment."""
     data_dir = Path(os.environ.get("AMPHIGORY_DATA", "/data"))
     return data_dir / "tasks"
+
+
+async def _get_current_fingerprint() -> Optional[str]:
+    """Get fingerprint of currently inserted disc from daemon."""
+    for daemon in _daemons.values():
+        if daemon.disc_inserted:
+            return getattr(daemon, 'fingerprint', None)
+    return None
 
 
 class DiscStatusResponse(BaseModel):
@@ -136,6 +145,8 @@ async def get_scan_result(request: Request, task_id: Optional[str] = None) -> Sc
 
     If task_id is provided, returns that specific task's result (or 404 if not complete).
     If task_id is not provided, returns the most recent scan result.
+
+    Also saves scan results to database if fingerprint is available.
     """
     tasks_dir = get_tasks_dir()
     complete_dir = tasks_dir / "complete"
@@ -167,11 +178,17 @@ async def get_scan_result(request: Request, task_id: Optional[str] = None) -> Sc
         result = data["result"]
 
         # Cache the result
-        set_current_scan({
+        scan_data = {
             "disc_name": result["disc_name"],
             "disc_type": result["disc_type"],
             "tracks": result.get("tracks", []),
-        })
+        }
+        set_current_scan(scan_data)
+
+        # Save to database if we have a fingerprint
+        fingerprint = await _get_current_fingerprint()
+        if fingerprint:
+            await disc_repository.save_disc_scan(fingerprint, scan_data)
 
         return ScanResultResponse(
             disc_name=result["disc_name"],
@@ -199,17 +216,57 @@ async def get_scan_result(request: Request, task_id: Optional[str] = None) -> Sc
     result = latest["result"]
 
     # Cache the result
-    set_current_scan({
+    scan_data = {
         "disc_name": result["disc_name"],
         "disc_type": result["disc_type"],
         "tracks": result.get("tracks", []),
-    })
+    }
+    set_current_scan(scan_data)
+
+    # Save to database if we have a fingerprint
+    fingerprint = await _get_current_fingerprint()
+    if fingerprint:
+        await disc_repository.save_disc_scan(fingerprint, scan_data)
 
     return ScanResultResponse(
         disc_name=result["disc_name"],
         disc_type=result["disc_type"],
         tracks=result.get("tracks", []),
     )
+
+
+@router.get("/lookup-fingerprint")
+async def lookup_fingerprint(fingerprint: Optional[str] = None):
+    """Look up disc information by fingerprint.
+
+    If fingerprint is not provided, uses the currently inserted disc's fingerprint.
+
+    Returns:
+        Disc info with title, cached scan data, etc., or 404 if not found.
+    """
+    fp = fingerprint
+    if not fp:
+        # Use current disc's fingerprint
+        fp = await _get_current_fingerprint()
+
+    if not fp:
+        raise HTTPException(
+            status_code=404,
+            detail="No fingerprint available"
+        )
+
+    disc_info = await disc_repository.get_disc_by_fingerprint(fp)
+    if not disc_info:
+        raise HTTPException(
+            status_code=404,
+            detail="Disc not found in database"
+        )
+
+    # Parse scan_data if it exists
+    if disc_info.get("scan_data"):
+        disc_info["scan_data"] = json.loads(disc_info["scan_data"])
+
+    return disc_info
 
 
 @router.get("/status-html", response_class=HTMLResponse)
@@ -219,22 +276,39 @@ async def get_disc_status_html(request: Request):
     for daemon in _daemons.values():
         if daemon.disc_inserted:
             scan = get_current_scan()
+
+            # Check if disc has a fingerprint and if it's known in the database
+            fingerprint = getattr(daemon, 'fingerprint', None)
+            known_disc_info = None
+            if fingerprint:
+                known_disc_info = await disc_repository.get_disc_by_fingerprint(fingerprint)
+
             if scan:
                 track_count = len(scan.get("tracks", []))
+                known_disc_html = ""
+                if known_disc_info:
+                    known_disc_html = f'<p class="status-detail">Known disc: {known_disc_info["title"]}</p>'
+
                 return f'''
             <div class="disc-detected">
                 <p class="status-message status-success">Disc detected: {daemon.disc_volume or "Unknown"}</p>
                 <p class="status-detail">{daemon.daemon_id} {daemon.disc_device}</p>
+                {known_disc_html}
                 <p class="status-detail">{track_count} tracks scanned</p>
                 <a href="/disc" class="btn btn-primary">Review Tracks</a>
             </div>
             '''
             else:
                 # No scan yet - show scan button
+                known_disc_html = ""
+                if known_disc_info:
+                    known_disc_html = f'<p class="status-detail">Known disc: {known_disc_info["title"]}</p>'
+
                 return f'''
             <div class="disc-detected">
                 <p class="status-message status-success">Disc detected: {daemon.disc_volume or "Unknown"}</p>
                 <p class="status-detail">{daemon.daemon_id} {daemon.disc_device}</p>
+                {known_disc_html}
                 <button hx-post="/api/disc/scan" hx-target="#disc-info" class="btn btn-primary">
                     Scan Disc
                 </button>
