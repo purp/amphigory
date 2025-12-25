@@ -963,3 +963,106 @@ class TestDiscEjectHandler:
 
         assert daemon.current_disc is None
         assert daemon.activity_state == ActivityState.IDLE_EMPTY
+
+
+class TestOpticalDriveIntegration:
+    """Tests for OpticalDrive integration in daemon."""
+
+    @pytest.mark.asyncio
+    async def test_daemon_creates_optical_drive(self):
+        """Daemon creates OpticalDrive on initialize."""
+        from amphigory_daemon.main import AmphigoryDaemon
+        from amphigory_daemon.drive import OpticalDrive
+
+        daemon = AmphigoryDaemon()
+        # Mock the config setup
+        daemon.daemon_config = type('obj', (object,), {
+            'daemon_id': 'test@host',
+            'webapp_url': 'http://localhost:8000',
+            'webapp_basedir': '/tmp/test',
+            'makemkvcon_path': '/usr/bin/makemkvcon',
+        })()
+
+        # Create optical drive manually (normally done in initialize)
+        daemon.optical_drive = OpticalDrive(
+            daemon_id=daemon.daemon_config.daemon_id,
+            device="/dev/rdisk4",
+        )
+
+        assert daemon.optical_drive is not None
+        assert daemon.optical_drive.daemon_id == 'test@host'
+        assert daemon.optical_drive.state.value == 'empty'
+
+    @pytest.mark.asyncio
+    async def test_disc_insert_updates_optical_drive(self, tmp_path):
+        """on_disc_insert updates OpticalDrive model."""
+        from amphigory_daemon.main import AmphigoryDaemon
+        from amphigory_daemon.drive import OpticalDrive, DriveState
+
+        daemon = AmphigoryDaemon()
+        daemon.optical_drive = OpticalDrive(
+            daemon_id='test@host',
+            device="/dev/rdisk0",
+        )
+
+        # Create mock DVD structure for fingerprinting
+        video_ts = tmp_path / "VIDEO_TS"
+        video_ts.mkdir()
+        (video_ts / "VIDEO_TS.IFO").write_bytes(b"mock ifo")
+
+        # Simulate disc insert
+        daemon.on_disc_insert("/dev/rdisk4", "MY_MOVIE", str(tmp_path))
+
+        assert daemon.optical_drive.state == DriveState.DISC_INSERTED
+        assert daemon.optical_drive.disc_volume == "MY_MOVIE"
+        assert daemon.optical_drive.device == "/dev/rdisk4"
+
+    @pytest.mark.asyncio
+    async def test_disc_eject_updates_optical_drive(self):
+        """on_disc_eject updates OpticalDrive model."""
+        from amphigory_daemon.main import AmphigoryDaemon
+        from amphigory_daemon.drive import OpticalDrive, DriveState
+
+        daemon = AmphigoryDaemon()
+        daemon.optical_drive = OpticalDrive(
+            daemon_id='test@host',
+            device="/dev/rdisk4",
+        )
+        daemon.optical_drive.insert_disc(volume="MY_MOVIE", disc_type="dvd")
+
+        # Simulate disc eject
+        daemon.on_disc_eject("/Volumes/MY_MOVIE")
+
+        assert daemon.optical_drive.state == DriveState.EMPTY
+        assert daemon.optical_drive.disc_volume is None
+
+    def test_detect_disc_type_bluray(self, tmp_path):
+        """_detect_disc_type returns 'bluray' for BDMV structure."""
+        from amphigory_daemon.main import AmphigoryDaemon
+
+        (tmp_path / "BDMV").mkdir()
+
+        daemon = AmphigoryDaemon()
+        result = daemon._detect_disc_type(str(tmp_path))
+
+        assert result == "bluray"
+
+    def test_detect_disc_type_dvd(self, tmp_path):
+        """_detect_disc_type returns 'dvd' for VIDEO_TS structure."""
+        from amphigory_daemon.main import AmphigoryDaemon
+
+        (tmp_path / "VIDEO_TS").mkdir()
+
+        daemon = AmphigoryDaemon()
+        result = daemon._detect_disc_type(str(tmp_path))
+
+        assert result == "dvd"
+
+    def test_detect_disc_type_cd(self, tmp_path):
+        """_detect_disc_type returns 'cd' for unknown structure."""
+        from amphigory_daemon.main import AmphigoryDaemon
+
+        daemon = AmphigoryDaemon()
+        result = daemon._detect_disc_type(str(tmp_path))
+
+        assert result == "cd"

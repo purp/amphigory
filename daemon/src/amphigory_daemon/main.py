@@ -48,6 +48,8 @@ from .config import get_config, load_local_config, fetch_webapp_config, validate
 from .dialogs import ConfigDialog
 from .discovery import discover_makemkvcon
 from .disc import DiscDetector
+from .drive import OpticalDrive, DriveState
+from .fingerprint import generate_fingerprint, FingerprintError
 from .icons import ActivityState, StatusOverlay, get_icon_name
 from .makemkv import (
     Progress,
@@ -146,6 +148,7 @@ class AmphigoryDaemon(rumps.App):
         self.ws_server: Optional[WebSocketServer] = None
         self.webapp_client: Optional[WebAppClient] = None
         self.disc_detector: Optional[DiscDetector] = None
+        self.optical_drive: Optional[OpticalDrive] = None
 
         # State
         self.current_task: Optional[ScanTask | RipTask] = None
@@ -274,6 +277,12 @@ class AmphigoryDaemon(rumps.App):
             logger.info("Webapp config refreshed")
         except ConnectionError as e:
             logger.warning(f"Failed to refresh webapp config: {e}")
+
+    async def _handle_get_drive_status(self, params: dict) -> dict:
+        """Handle get_drive_status request from webapp."""
+        if not self.optical_drive:
+            return {"error": "No optical drive initialized"}
+        return self.optical_drive.to_dict()
 
     def is_storage_available(self) -> bool:
         """
@@ -466,9 +475,38 @@ class AmphigoryDaemon(rumps.App):
                     "Please restart the daemon to apply changes.",
                 )
 
-    def on_disc_insert(self, device: str, volume_name: str) -> None:
+    def _detect_disc_type(self, volume_path: str) -> str:
+        """Detect disc type from volume structure."""
+        path = Path(volume_path)
+
+        if (path / "BDMV").exists():
+            return "bluray"
+        elif (path / "VIDEO_TS").exists():
+            return "dvd"
+        else:
+            return "cd"
+
+    def on_disc_insert(self, device: str, volume_name: str, volume_path: str = None) -> None:
         """Handle disc insertion."""
         logger.info(f"Disc inserted: {volume_name} at {device}")
+
+        # Determine disc type
+        disc_type = self._detect_disc_type(volume_path) if volume_path else "unknown"
+
+        # Update OpticalDrive model
+        if self.optical_drive:
+            self.optical_drive.device = device
+            self.optical_drive.insert_disc(volume=volume_name, disc_type=disc_type)
+
+            # Generate fingerprint
+            if volume_path:
+                try:
+                    fingerprint = generate_fingerprint(volume_path, disc_type, volume_name)
+                    self.optical_drive.set_fingerprint(fingerprint)
+                    logger.info(f"Generated fingerprint: {fingerprint[:16]}...")
+                except FingerprintError as e:
+                    logger.warning(f"Failed to generate fingerprint: {e}")
+
         self.current_disc = (device, volume_name)
         self.activity_state = ActivityState.IDLE_DISC
         self._update_disc_menu()
@@ -489,6 +527,10 @@ class AmphigoryDaemon(rumps.App):
     def on_disc_eject(self, volume_path: str) -> None:
         """Handle disc ejection."""
         logger.info(f"Disc ejected: {volume_path}")
+
+        if self.optical_drive:
+            self.optical_drive.eject_disc()
+
         self.current_disc = None
         self.activity_state = ActivityState.IDLE_EMPTY
         self._update_disc_menu()
@@ -554,6 +596,12 @@ class AmphigoryDaemon(rumps.App):
                 self.daemon_config.daemon_id = generate_daemon_id()
                 logger.info(f"Generated daemon_id: {self.daemon_config.daemon_id}")
 
+            # Create OpticalDrive instance
+            self.optical_drive = OpticalDrive(
+                daemon_id=self.daemon_config.daemon_id,
+                device="/dev/rdisk4",  # Will be updated on disc detection
+            )
+
             # Discover makemkvcon
             self.makemkv_path = discover_makemkvcon(
                 self.webapp_config.makemkv_path
@@ -596,6 +644,9 @@ class AmphigoryDaemon(rumps.App):
             # Connect to webapp's WebSocket endpoint with auto-reconnect
             webapp_ws_url = f"{self.daemon_config.webapp_url.replace('http', 'ws')}/ws"
             self.webapp_client = WebAppClient(webapp_ws_url)
+
+            # Register request handlers
+            self.webapp_client.on_request("get_drive_status", self._handle_get_drive_status)
 
             def on_webapp_connect():
                 self.status_overlays.discard(StatusOverlay.DISCONNECTED)
