@@ -49,3 +49,93 @@ class TestOpticalDriveModel:
         assert ScanStatus.IN_PROGRESS.value == "in_progress"
         assert ScanStatus.COMPLETE.value == "complete"
         assert ScanStatus.FAILED.value == "failed"
+
+
+class TestOpticalDriveStateMutations:
+    """Tests for OpticalDrive state mutation methods."""
+
+    def test_insert_disc_updates_state(self):
+        """insert_disc() updates state to DISC_INSERTED."""
+        drive = OpticalDrive(daemon_id="test", device="/dev/rdisk0")
+
+        drive.insert_disc(volume="MY_MOVIE", disc_type="bluray")
+
+        assert drive.state == DriveState.DISC_INSERTED
+        assert drive.disc_volume == "MY_MOVIE"
+        assert drive.disc_type == "bluray"
+        assert drive.disc_inserted_at is not None
+
+    def test_insert_disc_clears_previous_scan(self):
+        """insert_disc() clears any previous scan state."""
+        drive = OpticalDrive(daemon_id="test", device="/dev/rdisk0")
+        drive.scan_result = {"tracks": []}
+        drive.scan_status = ScanStatus.COMPLETE
+
+        drive.insert_disc(volume="NEW_DISC", disc_type="dvd")
+
+        assert drive.scan_result is None
+        assert drive.scan_status is None
+        assert drive.fingerprint is None
+
+    def test_eject_disc_resets_to_empty(self):
+        """eject_disc() resets drive to EMPTY state."""
+        drive = OpticalDrive(daemon_id="test", device="/dev/rdisk0")
+        drive.insert_disc(volume="MY_MOVIE", disc_type="bluray")
+        drive.scan_result = {"tracks": []}
+
+        drive.eject_disc()
+
+        assert drive.state == DriveState.EMPTY
+        assert drive.disc_volume is None
+        assert drive.disc_type is None
+        assert drive.fingerprint is None
+        assert drive.scan_result is None
+        assert drive.scan_status is None
+
+    def test_start_scan_updates_state(self):
+        """start_scan() transitions to SCANNING state."""
+        drive = OpticalDrive(daemon_id="test", device="/dev/rdisk0")
+        drive.insert_disc(volume="MY_MOVIE", disc_type="bluray")
+
+        drive.start_scan(task_id="scan-123")
+
+        assert drive.state == DriveState.SCANNING
+        assert drive.scan_status == ScanStatus.IN_PROGRESS
+        assert drive.scan_task_id == "scan-123"
+
+    def test_complete_scan_stores_result(self):
+        """complete_scan() stores result and transitions to SCANNED."""
+        drive = OpticalDrive(daemon_id="test", device="/dev/rdisk0")
+        drive.insert_disc(volume="MY_MOVIE", disc_type="bluray")
+        drive.start_scan(task_id="scan-123")
+
+        result = {"disc_name": "MY_MOVIE", "tracks": [{"number": 1}]}
+        drive.complete_scan(result=result)
+
+        assert drive.state == DriveState.SCANNED
+        assert drive.scan_status == ScanStatus.COMPLETE
+        assert drive.scan_result == result
+
+    def test_fail_scan_stores_error(self):
+        """fail_scan() stores error and returns to DISC_INSERTED."""
+        drive = OpticalDrive(daemon_id="test", device="/dev/rdisk0")
+        drive.insert_disc(volume="MY_MOVIE", disc_type="bluray")
+        drive.start_scan(task_id="scan-123")
+
+        drive.fail_scan(error="Disc unreadable")
+
+        assert drive.state == DriveState.DISC_INSERTED
+        assert drive.scan_status == ScanStatus.FAILED
+        assert drive.scan_error == "Disc unreadable"
+
+    def test_to_dict_serializes_state(self):
+        """to_dict() returns JSON-serializable representation."""
+        drive = OpticalDrive(daemon_id="test", device="/dev/rdisk0")
+        drive.insert_disc(volume="MY_MOVIE", disc_type="bluray")
+
+        data = drive.to_dict()
+
+        assert data["drive_id"] == "test:rdisk0"
+        assert data["state"] == "disc_inserted"
+        assert data["disc_volume"] == "MY_MOVIE"
+        assert data["disc_type"] == "bluray"
