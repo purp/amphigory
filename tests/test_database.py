@@ -164,3 +164,46 @@ class TestSchemaExtensions:
             assert "show_name" in columns
             assert "tmdb_id" in columns
             assert "tvdb_id" in columns
+
+
+class TestPhase3SchemaExtensions:
+    @pytest.mark.asyncio
+    async def test_discs_table_has_reprocessing_columns(self, db):
+        """Discs table has needs_reprocessing, reprocessing_type, reprocessing_notes columns."""
+        async with db.connection() as conn:
+            cursor = await conn.execute("PRAGMA table_info(discs)")
+            columns = {row["name"] for row in await cursor.fetchall()}
+
+        assert "needs_reprocessing" in columns
+        assert "reprocessing_type" in columns
+        assert "reprocessing_notes" in columns
+
+    @pytest.mark.asyncio
+    async def test_tracks_table_has_preset_name(self, db):
+        """Tracks table has preset_name column."""
+        async with db.connection() as conn:
+            cursor = await conn.execute("PRAGMA table_info(tracks)")
+            columns = {row["name"] for row in await cursor.fetchall()}
+
+        assert "preset_name" in columns
+
+    @pytest.mark.asyncio
+    async def test_can_flag_disc_for_reprocessing(self, db):
+        """Can set reprocessing flags on a disc."""
+        async with db.connection() as conn:
+            await conn.execute(
+                """INSERT INTO discs (title, needs_reprocessing, reprocessing_type, reprocessing_notes)
+                   VALUES (?, ?, ?, ?)""",
+                ("Test Movie", True, "re-transcode", "comb artifacts on extras"),
+            )
+            await conn.commit()
+
+            cursor = await conn.execute(
+                "SELECT needs_reprocessing, reprocessing_type, reprocessing_notes FROM discs WHERE title = ?",
+                ("Test Movie",),
+            )
+            row = await cursor.fetchone()
+
+        assert row["needs_reprocessing"] == 1
+        assert row["reprocessing_type"] == "re-transcode"
+        assert row["reprocessing_notes"] == "comb artifacts on extras"

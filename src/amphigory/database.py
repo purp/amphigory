@@ -25,7 +25,12 @@ CREATE TABLE IF NOT EXISTS discs (
     media_type TEXT DEFAULT 'movie',
     show_name TEXT,
     tmdb_id TEXT,
-    tvdb_id TEXT
+    tvdb_id TEXT,
+
+    -- Reprocessing flags
+    needs_reprocessing BOOLEAN DEFAULT FALSE,
+    reprocessing_type TEXT,
+    reprocessing_notes TEXT
 );
 
 -- Individual tracks ripped from a disc
@@ -58,7 +63,10 @@ CREATE TABLE IF NOT EXISTS tracks (
     season_number INTEGER,
     episode_number INTEGER,
     episode_end_number INTEGER,
-    air_date DATE
+    air_date DATE,
+
+    -- Transcode preset used
+    preset_name TEXT
 );
 
 -- Handbrake presets with versioning
@@ -165,6 +173,18 @@ class Database:
             await conn.execute("ALTER TABLE tracks ADD COLUMN episode_end_number INTEGER")
         if "air_date" not in tracks_columns:
             await conn.execute("ALTER TABLE tracks ADD COLUMN air_date DATE")
+
+        # Migration: Add reprocessing flags to discs table
+        if "needs_reprocessing" not in discs_columns:
+            await conn.execute("ALTER TABLE discs ADD COLUMN needs_reprocessing BOOLEAN DEFAULT FALSE")
+        if "reprocessing_type" not in discs_columns:
+            await conn.execute("ALTER TABLE discs ADD COLUMN reprocessing_type TEXT")
+        if "reprocessing_notes" not in discs_columns:
+            await conn.execute("ALTER TABLE discs ADD COLUMN reprocessing_notes TEXT")
+
+        # Migration: Add preset_name to tracks table
+        if "preset_name" not in tracks_columns:
+            await conn.execute("ALTER TABLE tracks ADD COLUMN preset_name TEXT")
 
     @asynccontextmanager
     async def connection(self) -> AsyncGenerator[aiosqlite.Connection, None]:
