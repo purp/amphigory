@@ -2,9 +2,9 @@
 
 Items deferred to focus on getting to a fully functional system first.
 
-## Scanning
-- [ ] Disable "Scan Disk" button if the daemon is currently scanning the disc
-- [ ] Provide a way to stop a scan that's currently running
+## Drive operations
+- [ ] Disable "Scan Disk" button (and other drive action buttons) if the drive is currently busy
+- [ ] Provide a way to stop the currently running disk activity (scanning, ripping)
 - [ ] Recognize when a scan has taken too long and stop it
 
 ## Logging
@@ -30,7 +30,6 @@ Items deferred to focus on getting to a fully functional system first.
 
 ## Recovery Handling
 
-- [ ] **Missing disc recovery**: When storage recovery finds incomplete rips, mark disc as "missing" in database rather than requiring re-rip
 - [ ] **Re-rip optional**: Provide UI option to re-rip if user reinserts disc, but don't require it
 
 ## Database Protection
@@ -42,6 +41,10 @@ Items deferred to focus on getting to a fully functional system first.
 
 ## Future Enhancements
 
+- [ ] Auto-eject disk when finished ripping tracks
+- [ ] Unattended mode: the user can specify what sorts of tracks to process when a disk is inserted. 
+    * On insert, the system rips all tracks, classifies, then transcodes and inserts according to user specifications. 
+    * Tracks that are ripped but not processed further are kept for inspection later.
 - [ ] Proactive scanning: daemon scans disc on insert, caches result for quick display on Disc Review page
 - [ ] Show HandBrake preset for each track on Disc Review page, with dropdown to select different preset
 - [ ] Track previews: grab 60 seconds of a track for quick preview transcoding
