@@ -453,18 +453,44 @@ async function searchTMDB() {
 // Display TMDB search results
 function displayTMDBResults(results) {
     const resultsDiv = document.getElementById('tmdb-results');
+    resultsDiv.innerHTML = ''; // Clear previous
 
     if (!results || results.length === 0) {
-        resultsDiv.innerHTML = '<p class="text-muted" style="padding: 0.75rem;">No results found</p>';
+        const p = document.createElement('p');
+        p.className = 'text-muted';
+        p.style.padding = '0.75rem';
+        p.textContent = 'No results found';
+        resultsDiv.appendChild(p);
         return;
     }
 
-    resultsDiv.innerHTML = results.map(movie => `
-        <div class="tmdb-result" onclick="selectTMDBResult(${movie.id}, '${movie.title.replace(/'/g, "\\'")}', ${movie.year})">
-            <strong>${movie.title}</strong> ${movie.year ? `(${movie.year})` : ''}
-            ${movie.overview ? `<br><span style="font-size: 0.9em; color: var(--text-muted);">${movie.overview.substring(0, 150)}${movie.overview.length > 150 ? '...' : ''}</span>` : ''}
-        </div>
-    `).join('');
+    results.forEach(movie => {
+        const div = document.createElement('div');
+        div.className = 'tmdb-result';
+        div.onclick = () => selectTMDBResult(movie.id, movie.title, movie.year);
+
+        const strong = document.createElement('strong');
+        strong.textContent = movie.title;
+        div.appendChild(strong);
+
+        if (movie.year) {
+            div.appendChild(document.createTextNode(` (${movie.year})`));
+        }
+
+        if (movie.overview) {
+            div.appendChild(document.createElement('br'));
+            const span = document.createElement('span');
+            span.className = 'text-muted';
+            span.style.fontSize = '0.85rem';
+            const overview = movie.overview.length > 150
+                ? movie.overview.substring(0, 150) + '...'
+                : movie.overview;
+            span.textContent = overview;
+            div.appendChild(span);
+        }
+
+        resultsDiv.appendChild(div);
+    });
 }
 
 // Select a TMDB result and fill in the form
