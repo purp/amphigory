@@ -126,10 +126,18 @@ def parse_scan_output(output: str) -> ScanResult:
                 elif field_id == 9:  # Duration
                     tracks[track_num]["duration"] = value
                 elif field_id == 11:  # Size in bytes
-                    tracks[track_num]["size_bytes"] = int(value)
+                    try:
+                        tracks[track_num]["size_bytes"] = int(value)
+                    except (ValueError, TypeError):
+                        tracks[track_num]["size_bytes"] = 0
                 elif field_id == 8:  # Chapter count
-                    tracks[track_num]["chapters"] = int(value)
-                    tracks[track_num]["chapter_count"] = int(value)
+                    try:
+                        chapter_count = int(value)
+                        tracks[track_num]["chapters"] = chapter_count
+                        tracks[track_num]["chapter_count"] = chapter_count
+                    except (ValueError, TypeError):
+                        tracks[track_num]["chapters"] = 0
+                        tracks[track_num]["chapter_count"] = 0
                 elif field_id == 26:  # Segment map
                     tracks[track_num]["segment_map"] = value
 

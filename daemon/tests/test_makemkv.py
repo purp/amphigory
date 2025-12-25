@@ -213,3 +213,18 @@ SINFO:0,2,4,0,"5.1"
         assert audio[0].codec == "TrueHD"
         assert audio[0].language == "English"
         assert audio[0].channels == "7.1"
+
+    def test_handles_malformed_integer_fields(self):
+        """Parser handles malformed integer data gracefully."""
+        from amphigory_daemon.makemkv import parse_scan_output
+
+        output = '''TINFO:0,2,0,"Title #1"
+TINFO:0,9,0,"1:45:30"
+TINFO:0,8,0,"not_a_number"
+TINFO:0,11,0,"invalid"
+'''
+        result = parse_scan_output(output)
+        # Should default to 0 for malformed data
+        assert result.tracks[0].chapters == 0
+        assert result.tracks[0].chapter_count == 0
+        assert result.tracks[0].size_bytes == 0

@@ -79,7 +79,11 @@ class SubtitleStream:
 
 @dataclass
 class ScannedTrack:
-    """Information about a track discovered during disc scan."""
+    """Information about a track discovered during disc scan.
+
+    Note: chapters and chapter_count are aliases - both contain the same value.
+    chapters is kept for backwards compatibility with existing JSON serialization.
+    """
     number: int
     duration: str
     size_bytes: int
