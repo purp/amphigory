@@ -1,7 +1,7 @@
 {
   "PresetList" : [
     {
-      "AlignAVStart" : false,
+      "AlignAVStart" : true,
       "AudioAutomaticNamingBehavior" : "unnamed",
       "AudioCopyMask" : [
         "copy:aac",
@@ -43,7 +43,7 @@
       "InlineParameterSets" : false,
       "MetadataPassthru" : true,
       "Mp4iPodCompatible" : false,
-      "Optimize" : false,
+      "Optimize" : true,
       "PictureAllowUpscaling" : false,
       "PictureAutoCrop" : true,
       "PictureBottomCrop" : 0,
