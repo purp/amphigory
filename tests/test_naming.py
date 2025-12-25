@@ -27,11 +27,48 @@ class TestSanitizeFilename:
         """Test that valid characters are preserved."""
         assert sanitize_filename('Movie (1999)') == 'Movie (1999)'
         assert sanitize_filename('Title - Subtitle') == 'Title - Subtitle'
-        assert sanitize_filename('Name & Co.') == 'Name & Co.'
+        # Note: trailing dots are stripped for security
+        assert sanitize_filename('Name & Co.') == 'Name & Co'
 
     def test_handles_empty_string(self):
         """Test handling of empty string."""
-        assert sanitize_filename('') == ''
+        with pytest.raises(ValueError, match="empty or whitespace-only"):
+            sanitize_filename('')
+
+    def test_handles_whitespace_only(self):
+        """Test handling of whitespace-only strings."""
+        with pytest.raises(ValueError, match="empty or whitespace-only"):
+            sanitize_filename('   ')
+        with pytest.raises(ValueError, match="empty or whitespace-only"):
+            sanitize_filename('\t\n')
+
+    def test_prevents_path_traversal(self):
+        """Test that path traversal attempts are prevented."""
+        assert sanitize_filename('../etc/passwd') == 'etcpasswd'
+        assert sanitize_filename('..\\windows\\system32') == 'windowssystem32'
+        assert sanitize_filename('file..name') == 'filename'
+
+    def test_strips_leading_trailing_dots(self):
+        """Test that leading and trailing dots are stripped."""
+        assert sanitize_filename('.hidden') == 'hidden'
+        assert sanitize_filename('file.') == 'file'
+        assert sanitize_filename('..file..') == 'file'
+
+    def test_strips_leading_trailing_whitespace(self):
+        """Test that leading and trailing whitespace are stripped."""
+        assert sanitize_filename('  file  ') == 'file'
+        assert sanitize_filename('\tfile\n') == 'file'
+
+    def test_sanitization_results_in_empty_string(self):
+        """Test that ValueError is raised when sanitization results in empty string."""
+        with pytest.raises(ValueError, match="resulted in empty string"):
+            sanitize_filename('...')
+        with pytest.raises(ValueError, match="resulted in empty string"):
+            sanitize_filename('::://')
+        with pytest.raises(ValueError, match="resulted in empty string"):
+            sanitize_filename('....')
+        with pytest.raises(ValueError, match="resulted in empty string"):
+            sanitize_filename('<>?*|')
 
 
 class TestGenerateTrackFilename:
@@ -221,6 +258,60 @@ class TestGenerateTrackFilename:
         )
         assert filename == 'Trailer Extended Cut-trailer.mkv'
 
+    def test_year_validation(self):
+        """Test that year validation works correctly."""
+        # Valid year
+        filename = generate_track_filename(
+            track_type='main_feature',
+            movie_title='The Matrix',
+            year=1999,
+            track_name='Main Feature',
+            language='en'
+        )
+        assert filename == 'The Matrix (1999).mkv'
+
+        # Year too old
+        with pytest.raises(ValueError, match="Year must be between 1900 and 2100"):
+            generate_track_filename(
+                track_type='main_feature',
+                movie_title='The Matrix',
+                year=1800,
+                track_name='Main Feature',
+                language='en'
+            )
+
+        # Year too new
+        with pytest.raises(ValueError, match="Year must be between 1900 and 2100"):
+            generate_track_filename(
+                track_type='main_feature',
+                movie_title='The Matrix',
+                year=2150,
+                track_name='Main Feature',
+                language='en'
+            )
+
+    def test_empty_movie_title(self):
+        """Test that empty movie title raises ValueError."""
+        with pytest.raises(ValueError, match="empty or whitespace-only"):
+            generate_track_filename(
+                track_type='main_feature',
+                movie_title='',
+                year=1999,
+                track_name='Main Feature',
+                language='en'
+            )
+
+    def test_empty_track_name(self):
+        """Test that empty track name raises ValueError."""
+        with pytest.raises(ValueError, match="empty or whitespace-only"):
+            generate_track_filename(
+                track_type='trailers',
+                movie_title='The Matrix',
+                year=1999,
+                track_name='',
+                language='en'
+            )
+
 
 class TestGenerateOutputDirectory:
     """Test output directory generation."""
@@ -344,3 +435,42 @@ class TestGenerateOutputDirectory:
             track_type='main_feature'
         )
         assert directory == Path('/media/movies/The Matrix (1999)')
+
+    def test_year_validation_in_directory(self):
+        """Test that year validation works in directory generation."""
+        # Valid year
+        directory = generate_output_directory(
+            base_path='/media/movies',
+            movie_title='The Matrix',
+            year=1999,
+            track_type='main_feature'
+        )
+        assert directory == Path('/media/movies/The Matrix (1999)')
+
+        # Year too old
+        with pytest.raises(ValueError, match="Year must be between 1900 and 2100"):
+            generate_output_directory(
+                base_path='/media/movies',
+                movie_title='The Matrix',
+                year=1800,
+                track_type='main_feature'
+            )
+
+        # Year too new
+        with pytest.raises(ValueError, match="Year must be between 1900 and 2100"):
+            generate_output_directory(
+                base_path='/media/movies',
+                movie_title='The Matrix',
+                year=2150,
+                track_type='main_feature'
+            )
+
+    def test_empty_movie_title_in_directory(self):
+        """Test that empty movie title raises ValueError in directory generation."""
+        with pytest.raises(ValueError, match="empty or whitespace-only"):
+            generate_output_directory(
+                base_path='/media/movies',
+                movie_title='',
+                year=1999,
+                track_type='main_feature'
+            )

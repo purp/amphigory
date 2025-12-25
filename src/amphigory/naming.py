@@ -33,17 +33,37 @@ PLEX_DIRECTORIES = {
 
 
 def sanitize_filename(name: str) -> str:
-    """Remove invalid filename characters.
+    """Remove invalid filename characters and prevent path traversal.
 
     Args:
         name: The filename or path component to sanitize
 
     Returns:
         Sanitized string with invalid characters removed
+
+    Raises:
+        ValueError: If the sanitized result is empty or whitespace-only
     """
+    # Check for empty/whitespace-only input
+    if not name or not name.strip():
+        raise ValueError("Filename cannot be empty or whitespace-only")
+
+    # Remove invalid filename characters
     result = name
     for char in INVALID_FILENAME_CHARS:
         result = result.replace(char, '')
+
+    # Prevent path traversal by removing '..' sequences
+    result = result.replace('..', '')
+
+    # Strip leading/trailing whitespace and dots
+    result = result.strip()
+    result = result.strip('.')
+
+    # Check if sanitization resulted in empty string
+    if not result:
+        raise ValueError("Filename sanitization resulted in empty string")
+
     return result
 
 
@@ -66,12 +86,19 @@ def generate_track_filename(
     Returns:
         Plex-compatible filename with .mkv extension
 
+    Raises:
+        ValueError: If required inputs are invalid
+
     Examples:
         Main feature: "The Matrix (1999).mkv"
         Alternate language: "The Matrix (1999) - fr.mkv"
         Extras: "Making Of-featurette.mkv"
     """
-    # Sanitize inputs
+    # Validate year is reasonable
+    if not isinstance(year, int) or year < 1900 or year > 2100:
+        raise ValueError(f"Year must be between 1900 and 2100, got: {year}")
+
+    # Sanitize inputs (will raise ValueError if empty/whitespace-only)
     sanitized_title = sanitize_filename(movie_title)
     sanitized_track_name = sanitize_filename(track_name)
 
@@ -105,6 +132,9 @@ def generate_output_directory(
     Returns:
         Path object for the output directory
 
+    Raises:
+        ValueError: If required inputs are invalid
+
     Examples:
         Main feature: "/media/movies/The Matrix (1999)"
         Extras: "/media/movies/The Matrix (1999)/Behind The Scenes"
@@ -112,7 +142,11 @@ def generate_output_directory(
     # Convert base_path to Path if it's a string
     base = Path(base_path)
 
-    # Sanitize movie title
+    # Validate year is reasonable
+    if not isinstance(year, int) or year < 1900 or year > 2100:
+        raise ValueError(f"Year must be between 1900 and 2100, got: {year}")
+
+    # Sanitize movie title (will raise ValueError if empty/whitespace-only)
     sanitized_title = sanitize_filename(movie_title)
 
     # Movie directory: "Title (Year)"

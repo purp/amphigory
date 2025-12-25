@@ -86,6 +86,14 @@
 let scanResult = null;
 let draggedRow = null;
 
+// HTML escaping to prevent XSS
+function escapeHtml(text) {
+    if (!text) return '';
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML;
+}
+
 // Plex naming helper functions (mirror Python naming.py logic)
 const PLEX_SUFFIXES = {
     'behind_the_scenes': '-behindthescenes',
@@ -99,6 +107,9 @@ const PLEX_SUFFIXES = {
 };
 
 function sanitizeFilename(name) {
+    // Check for null/undefined
+    if (!name) return '';
+
     // Remove invalid filename characters
     const invalidChars = '<>:"/\\|?*';
     let result = name;
@@ -109,6 +120,12 @@ function sanitizeFilename(name) {
 }
 
 function generateTrackFilename(trackType, movieTitle, year, trackName, language) {
+    // Check for null/undefined inputs
+    if (!movieTitle || !year || !trackName) {
+        console.error('Missing required parameters for generateTrackFilename');
+        return 'unknown.mkv';
+    }
+
     // Sanitize inputs
     const sanitizedTitle = sanitizeFilename(movieTitle);
     const sanitizedTrackName = sanitizeFilename(trackName);
@@ -339,7 +356,8 @@ async function pollForScanResult(taskId) {
 
 // Display scan results
 function displayScanResult(result) {
-    document.getElementById('disc-status-text').textContent = `${result.disc_name} (${result.disc_type})`;
+    // Use textContent for text nodes to prevent XSS
+    document.getElementById('disc-status-text').textContent = `${result.disc_name || 'Unknown'} (${result.disc_type || 'Unknown'})`;
 
     const scanSection = document.getElementById('scan-section');
     scanSection.innerHTML = `
@@ -351,7 +369,7 @@ function displayScanResult(result) {
     const infoSection = document.getElementById('disc-info-section');
     infoSection.style.display = 'block';
 
-    // Populate title (editable)
+    // Populate title (editable) - safe because it's setting a value property, not innerHTML
     document.getElementById('disc-title').value = result.disc_name || '';
 
     const tracksSection = document.getElementById('tracks-section');
@@ -369,12 +387,12 @@ function displayScanResult(result) {
             <td class="col-drag"><span class="drag-handle">⋮⋮</span></td>
             <td class="col-select">
                 <input type="checkbox" name="tracks" value="${track.number || index}"
-                       onchange="updateSelectedCount()" data-classification="${track.classification || 'unknown'}">
+                       onchange="updateSelectedCount()" data-classification="${escapeHtml(track.classification || 'unknown')}">
             </td>
             <td class="col-track">${track.number || index}</td>
-            <td class="col-duration">${track.duration || '-'}</td>
+            <td class="col-duration">${escapeHtml(track.duration || '-')}</td>
             <td class="col-size">${formatSize(track.size_bytes)}</td>
-            <td class="col-resolution">${track.resolution || '-'}</td>
+            <td class="col-resolution">${escapeHtml(track.resolution || '-')}</td>
             <td class="col-type">
                 <span class="track-type type-${track.classification || 'unknown'}">
                     ${formatClassification(track.classification)}
@@ -383,8 +401,8 @@ function displayScanResult(result) {
             <td class="col-name">
                 <input type="text" name="track_name_${track.number || index}"
                        class="track-name-input"
-                       placeholder="${getDefaultTrackName(track)}"
-                       value="${track.name || ''}">
+                       placeholder="${escapeHtml(getDefaultTrackName(track))}"
+                       value="${escapeHtml(track.name || '')}">
             </td>
             <td class="col-audio">${track.audio_tracks || track.audio_streams?.length || 0}</td>
             <td class="col-subs">${track.subtitle_tracks || track.subtitle_streams?.length || 0}</td>
