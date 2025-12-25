@@ -594,18 +594,46 @@ body {
     color: #1e40af;
 }
 
-.type-extra {
-    background: #fef3c7;
-    color: #92400e;
-}
-
-.type-trailer {
+.type-trailers {
     background: #fce7f3;
     color: #9d174d;
 }
 
+.type-featurettes {
+    background: #fef3c7;
+    color: #92400e;
+}
+
+.type-deleted_scenes {
+    background: #ede9fe;
+    color: #5b21b6;
+}
+
+.type-other {
+    background: var(--bg);
+    color: var(--text-muted);
+}
+
 .type-unknown {
     background: var(--bg);
+    color: var(--text-muted);
+}
+
+/* Confidence Indicators */
+.confidence {
+    margin-left: 0.5rem;
+    font-size: 0.7rem;
+}
+
+.confidence-high {
+    color: var(--success);
+}
+
+.confidence-medium {
+    color: var(--warning);
+}
+
+.confidence-low {
     color: var(--text-muted);
 }
 

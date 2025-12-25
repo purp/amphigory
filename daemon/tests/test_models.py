@@ -183,6 +183,80 @@ class TestScanResult:
         assert len(result.tracks) == 1
         assert result.tracks[0].audio_streams[0].codec == "TrueHD"
 
+    def test_scan_result_with_classification(self):
+        """ScanResult includes classification data."""
+        from amphigory_daemon.models import (
+            ScanResult, ScannedTrack, AudioStream, SubtitleStream
+        )
+        result = ScanResult(
+            disc_name="TEST_DISC",
+            disc_type="bluray",
+            tracks=[
+                ScannedTrack(
+                    number=0,
+                    duration="1:45:00",
+                    size_bytes=5000000000,
+                    chapters=24,
+                    chapter_count=24,
+                    resolution="1920x1080",
+                    audio_streams=[
+                        AudioStream(language="eng", codec="DTS-HD", channels=8)
+                    ],
+                    subtitle_streams=[
+                        SubtitleStream(language="eng", format="PGS")
+                    ],
+                    classification="main_feature",
+                    confidence="high",
+                    score=0.85,
+                )
+            ],
+            duplicates_removed=2,
+        )
+        assert result.duplicates_removed == 2
+        assert result.tracks[0].classification == "main_feature"
+        assert result.tracks[0].confidence == "high"
+        assert result.tracks[0].score == 0.85
+
+    def test_scan_result_serialization_includes_classification(self):
+        """ScanResult serialization includes classification fields."""
+        from amphigory_daemon.models import (
+            ScanResult, ScannedTrack, AudioStream, SubtitleStream,
+            TaskResponse, TaskStatus, response_to_dict
+        )
+        result = ScanResult(
+            disc_name="TEST_DISC",
+            disc_type="bluray",
+            tracks=[
+                ScannedTrack(
+                    number=0,
+                    duration="1:45:00",
+                    size_bytes=5000000000,
+                    chapters=24,
+                    chapter_count=24,
+                    resolution="1920x1080",
+                    audio_streams=[],
+                    subtitle_streams=[],
+                    classification="main_feature",
+                    confidence="high",
+                    score=0.85,
+                )
+            ],
+            duplicates_removed=1,
+        )
+        response = TaskResponse(
+            task_id="test-001",
+            status=TaskStatus.SUCCESS,
+            started_at=datetime(2025, 12, 25, 10, 0, 0),
+            completed_at=datetime(2025, 12, 25, 10, 1, 0),
+            duration_seconds=60,
+            result=result,
+        )
+        d = response_to_dict(response)
+        assert d["result"]["duplicates_removed"] == 1
+        assert d["result"]["tracks"][0]["classification"] == "main_feature"
+        assert d["result"]["tracks"][0]["confidence"] == "high"
+        assert d["result"]["tracks"][0]["score"] == 0.85
+
 
 class TestDaemonConfig:
     def test_daemon_config(self):

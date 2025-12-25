@@ -94,6 +94,9 @@ class ScannedTrack:
     chapter_count: int = 0
     segment_map: str = ""
     is_main_feature_playlist: bool = False
+    classification: str = ""
+    confidence: str = ""
+    score: float = 0.0
 
 
 @dataclass
@@ -102,6 +105,7 @@ class ScanResult:
     disc_name: str
     disc_type: str
     tracks: list[ScannedTrack]
+    duplicates_removed: int = 0
 
 
 @dataclass
@@ -217,6 +221,7 @@ def response_to_dict(response: TaskResponse) -> dict:
             result["result"] = {
                 "disc_name": response.result.disc_name,
                 "disc_type": response.result.disc_type,
+                "duplicates_removed": response.result.duplicates_removed,
                 "tracks": [
                     {
                         "number": t.number,
@@ -235,6 +240,9 @@ def response_to_dict(response: TaskResponse) -> dict:
                         "chapter_count": t.chapter_count,
                         "segment_map": t.segment_map,
                         "is_main_feature_playlist": t.is_main_feature_playlist,
+                        "classification": t.classification,
+                        "confidence": t.confidence,
+                        "score": t.score,
                     }
                     for t in response.result.tracks
                 ],

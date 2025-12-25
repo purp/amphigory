@@ -44,6 +44,7 @@ def get_git_sha() -> Optional[str]:
         pass
     return None
 
+from .classifier import classify_tracks, deduplicate_by_segment, smart_order_tracks
 from .config import get_config, load_local_config, fetch_webapp_config, validate_config
 from .dialogs import ConfigDialog
 from .discovery import discover_makemkvcon
@@ -767,6 +768,30 @@ class AmphigoryDaemon(rumps.App):
             output = stdout.decode("utf-8", errors="replace")
 
             result = parse_scan_output(output)
+
+            # Apply classification to tracks
+            if result.tracks:
+                original_count = len(result.tracks)
+
+                # Deduplicate by segment map
+                deduplicated = deduplicate_by_segment(result.tracks)
+                result.duplicates_removed = original_count - len(deduplicated)
+
+                # Classify tracks
+                classified = classify_tracks(deduplicated)
+
+                # Update tracks with classification data
+                for track in deduplicated:
+                    if track.number in classified:
+                        ct = classified[track.number]
+                        track.classification = ct.classification
+                        track.confidence = ct.confidence
+                        track.score = ct.score
+
+                # Smart order tracks
+                ordered_tracks = smart_order_tracks(deduplicated, classified)
+                result.tracks = ordered_tracks
+
             completed_at = datetime.now()
 
             return TaskResponse(

@@ -360,8 +360,12 @@ function displayScanResult(result) {
     document.getElementById('disc-status-text').textContent = `${result.disc_name || 'Unknown'} (${result.disc_type || 'Unknown'})`;
 
     const scanSection = document.getElementById('scan-section');
+
+    // Show duplicate removal info if available
+    const dedupeInfo = result.duplicates_removed ? ` (${result.duplicates_removed} duplicate${result.duplicates_removed !== 1 ? 's' : ''} removed)` : '';
+
     scanSection.innerHTML = `
-        <p class="scan-complete">Scan complete! Found ${result.tracks.length} tracks.</p>
+        <p class="scan-complete">Scan complete! Found ${result.tracks.length} track${result.tracks.length !== 1 ? 's' : ''}.${dedupeInfo}</p>
         <button class="btn btn-secondary" onclick="startScan()">Rescan</button>
     `;
 
@@ -396,7 +400,7 @@ function displayScanResult(result) {
             <td class="col-type">
                 <span class="track-type type-${track.classification || 'unknown'}">
                     ${formatClassification(track.classification)}
-                </span>
+                </span>${getConfidenceIndicator(track.confidence)}
             </td>
             <td class="col-name">
                 <input type="text" name="track_name_${track.number || index}"
@@ -421,12 +425,24 @@ function formatSize(bytes) {
 function formatClassification(classification) {
     const labels = {
         'main_feature': 'Main Feature',
-        'extra': 'Extra',
-        'trailer': 'Trailer',
-        'menu': 'Menu',
+        'trailers': 'Trailer',
+        'featurettes': 'Featurette',
+        'deleted_scenes': 'Deleted Scene',
+        'other': 'Other',
         'unknown': 'Unknown',
     };
     return labels[classification] || classification || 'Unknown';
+}
+
+function getConfidenceIndicator(confidence) {
+    if (confidence === 'high') {
+        return '<span class="confidence confidence-high">●●●</span>';
+    } else if (confidence === 'medium') {
+        return '<span class="confidence confidence-medium">●●○</span>';
+    } else if (confidence === 'low') {
+        return '<span class="confidence confidence-low">●○○</span>';
+    }
+    return '';
 }
 
 function getDefaultTrackName(track) {
