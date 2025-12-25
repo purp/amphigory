@@ -237,7 +237,7 @@ async def websocket_endpoint(websocket: WebSocket):
 
                             # Look up disc in database
                             from amphigory.api.disc_repository import get_disc_by_fingerprint
-                            disc = await get_disc_by_fingerprint(app.state.db, fingerprint)
+                            disc = await get_disc_by_fingerprint(fingerprint)
                             if disc:
                                 uvi_logger.info(f"Known disc: {disc['title']} ({disc['year']})")
 

@@ -92,7 +92,8 @@ class ScanResultResponse(BaseModel):
 async def get_disc_status(request: Request) -> DiscStatusResponse:
     """Check current disc status by querying connected daemons via WebSocket."""
     # Query each daemon for disc status
-    for daemon_id in _daemons.keys():
+    # Copy keys to avoid RuntimeError if _daemons changes during iteration
+    for daemon_id in list(_daemons.keys()):
         try:
             drive_data = await manager.request_from_daemon(
                 daemon_id, "get_drive_status", {}, timeout=5.0
@@ -288,7 +289,8 @@ async def lookup_fingerprint(fingerprint: Optional[str] = None):
 async def get_disc_status_html(request: Request):
     """Return disc status as HTML fragment for HTMX."""
     # Query each daemon for disc status
-    for daemon_id in _daemons.keys():
+    # Copy keys to avoid RuntimeError if _daemons changes during iteration
+    for daemon_id in list(_daemons.keys()):
         try:
             drive_data = await manager.request_from_daemon(
                 daemon_id, "get_drive_status", {}, timeout=5.0
