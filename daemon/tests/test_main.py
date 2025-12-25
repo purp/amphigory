@@ -1,5 +1,6 @@
 """Tests for main daemon application - TDD: tests written first."""
 
+import asyncio
 import pytest
 from pathlib import Path
 from unittest.mock import MagicMock, patch, AsyncMock
@@ -1066,3 +1067,239 @@ class TestOpticalDriveIntegration:
         result = daemon._detect_disc_type(str(tmp_path))
 
         assert result == "cd"
+
+    def test_fingerprint_generated_on_disc_insert(self, tmp_path):
+        """on_disc_insert generates fingerprint when volume_path has DVD structure."""
+        from amphigory_daemon.main import AmphigoryDaemon
+        from amphigory_daemon.drive import OpticalDrive
+
+        daemon = AmphigoryDaemon()
+        daemon.optical_drive = OpticalDrive(
+            daemon_id='test@host',
+            device="/dev/rdisk0",
+        )
+
+        # Create mock DVD structure for fingerprinting
+        video_ts = tmp_path / "VIDEO_TS"
+        video_ts.mkdir()
+        (video_ts / "VIDEO_TS.IFO").write_bytes(b"mock ifo data")
+
+        # Simulate disc insert with volume_path
+        daemon.on_disc_insert("/dev/rdisk4", "MY_MOVIE", str(tmp_path))
+
+        # Assert fingerprint was generated and set
+        assert daemon.optical_drive.fingerprint is not None
+        assert len(daemon.optical_drive.fingerprint) > 0
+
+    @pytest.mark.asyncio
+    async def test_websocket_request_handler_registered(self, tmp_path):
+        """After initialization, get_drive_status handler is registered with webapp_client."""
+        from amphigory_daemon.main import AmphigoryDaemon
+        from amphigory_daemon.models import DaemonConfig, WebappConfig
+        from amphigory_daemon.config import ConfigValidationResult
+        import yaml
+
+        config_file = tmp_path / "daemon.yaml"
+        config_file.write_text(yaml.dump({
+            "webapp_url": "http://localhost:6199",
+            "webapp_basedir": str(tmp_path),
+        }))
+        cache_file = tmp_path / "cached_config.json"
+
+        daemon = AmphigoryDaemon()
+
+        with patch("amphigory_daemon.main.get_config", new_callable=AsyncMock) as mock_get_config:
+            mock_get_config.return_value = (
+                DaemonConfig(
+                    webapp_url="http://localhost:6199",
+                    webapp_basedir=str(tmp_path),
+                ),
+                WebappConfig(
+                    tasks_directory="/tasks",
+                    websocket_port=8765,
+                    wiki_url="http://localhost/wiki",
+                    heartbeat_interval=30,
+                    log_level="INFO",
+                    makemkv_path=None,
+                ),
+            )
+            with patch("amphigory_daemon.main.validate_config") as mock_validate:
+                mock_validate.return_value = ConfigValidationResult(
+                    makemkvcon_valid=True,
+                    makemkvcon_error=None,
+                    basedir_valid=True,
+                    basedir_error=None,
+                )
+                with patch("amphigory_daemon.main.discover_makemkvcon") as mock_discover:
+                    mock_discover.return_value = Path("/usr/bin/makemkvcon")
+                    with patch("amphigory_daemon.main.WebSocketServer") as mock_ws:
+                        mock_ws_instance = MagicMock()
+                        mock_ws_instance.start = AsyncMock()
+                        mock_ws.return_value = mock_ws_instance
+                        with patch("amphigory_daemon.main.WebAppClient") as mock_client_class:
+                            mock_client_instance = MagicMock()
+                            mock_client_instance.run_with_reconnect = AsyncMock()
+                            mock_client_instance.on_request = MagicMock()
+                            mock_client_class.return_value = mock_client_instance
+                            with patch("amphigory_daemon.main.DiscDetector") as mock_disc:
+                                mock_disc_instance = MagicMock()
+                                mock_disc_instance.get_current_disc.return_value = None
+                                mock_disc.return_value = mock_disc_instance
+                                with patch("amphigory_daemon.main.TaskQueue"):
+                                    await daemon.initialize(config_file, cache_file)
+
+                        # Verify on_request was called with get_drive_status
+                        mock_client_instance.on_request.assert_called_once()
+                        call_args = mock_client_instance.on_request.call_args
+                        assert call_args[0][0] == "get_drive_status"
+                        # Verify a handler was provided
+                        assert callable(call_args[0][1])
+
+    @pytest.mark.asyncio
+    async def test_handle_get_drive_status_returns_drive_dict(self):
+        """_handle_get_drive_status returns the drive's to_dict() output."""
+        from amphigory_daemon.main import AmphigoryDaemon
+        from amphigory_daemon.drive import OpticalDrive
+
+        daemon = AmphigoryDaemon()
+        daemon.optical_drive = OpticalDrive(
+            daemon_id='test@host',
+            device="/dev/rdisk4",
+        )
+
+        # Call handler
+        result = await daemon._handle_get_drive_status({})
+
+        # Verify it returns the drive's dict representation
+        assert isinstance(result, dict)
+        assert result["daemon_id"] == "test@host"
+        assert result["device"] == "/dev/rdisk4"
+        assert "state" in result
+
+    @pytest.mark.asyncio
+    async def test_webapp_client_send_disc_event_on_insert(self, tmp_path):
+        """webapp_client.send_disc_event is called when disc is inserted."""
+        from amphigory_daemon.main import AmphigoryDaemon
+        from amphigory_daemon.drive import OpticalDrive
+
+        daemon = AmphigoryDaemon()
+        daemon.optical_drive = OpticalDrive(
+            daemon_id='test@host',
+            device="/dev/rdisk0",
+        )
+
+        # Mock webapp_client
+        mock_webapp_client = MagicMock()
+        mock_webapp_client.is_connected.return_value = True
+        mock_webapp_client.send_disc_event = AsyncMock()
+        daemon.webapp_client = mock_webapp_client
+
+        # Create mock DVD structure
+        video_ts = tmp_path / "VIDEO_TS"
+        video_ts.mkdir()
+        (video_ts / "VIDEO_TS.IFO").write_bytes(b"mock ifo")
+
+        # Simulate disc insert
+        daemon.on_disc_insert("/dev/rdisk4", "TEST_DISC", str(tmp_path))
+
+        # Wait for async task to complete
+        await asyncio.sleep(0.1)
+
+        # Verify send_disc_event was called with correct args
+        mock_webapp_client.send_disc_event.assert_called_once_with(
+            "inserted", "/dev/rdisk4", "TEST_DISC"
+        )
+
+    @pytest.mark.asyncio
+    async def test_ws_server_send_disc_event_on_insert(self, tmp_path):
+        """ws_server.send_disc_event is called when disc is inserted."""
+        from amphigory_daemon.main import AmphigoryDaemon
+        from amphigory_daemon.drive import OpticalDrive
+
+        daemon = AmphigoryDaemon()
+        daemon.optical_drive = OpticalDrive(
+            daemon_id='test@host',
+            device="/dev/rdisk0",
+        )
+
+        # Mock ws_server
+        mock_ws_server = MagicMock()
+        mock_ws_server.send_disc_event = AsyncMock()
+        daemon.ws_server = mock_ws_server
+
+        # Create mock DVD structure
+        video_ts = tmp_path / "VIDEO_TS"
+        video_ts.mkdir()
+        (video_ts / "VIDEO_TS.IFO").write_bytes(b"mock ifo")
+
+        # Simulate disc insert
+        daemon.on_disc_insert("/dev/rdisk4", "TEST_DISC", str(tmp_path))
+
+        # Wait for async task to complete
+        await asyncio.sleep(0.1)
+
+        # Verify send_disc_event was called
+        mock_ws_server.send_disc_event.assert_called_once_with(
+            "inserted", "/dev/rdisk4", "TEST_DISC"
+        )
+
+    @pytest.mark.asyncio
+    async def test_webapp_client_send_disc_event_on_eject(self):
+        """webapp_client.send_disc_event is called when disc is ejected."""
+        from amphigory_daemon.main import AmphigoryDaemon
+        from amphigory_daemon.drive import OpticalDrive
+
+        daemon = AmphigoryDaemon()
+        daemon.optical_drive = OpticalDrive(
+            daemon_id='test@host',
+            device="/dev/rdisk4",
+        )
+        daemon.optical_drive.insert_disc(volume="TEST_DISC", disc_type="dvd")
+
+        # Mock webapp_client
+        mock_webapp_client = MagicMock()
+        mock_webapp_client.is_connected.return_value = True
+        mock_webapp_client.send_disc_event = AsyncMock()
+        daemon.webapp_client = mock_webapp_client
+
+        # Simulate disc eject
+        daemon.on_disc_eject("/Volumes/TEST_DISC")
+
+        # Wait for async task to complete
+        await asyncio.sleep(0.1)
+
+        # Verify send_disc_event was called
+        mock_webapp_client.send_disc_event.assert_called_once()
+        call_args = mock_webapp_client.send_disc_event.call_args
+        assert call_args[0][0] == "ejected"
+        assert call_args[1]["volume_path"] == "/Volumes/TEST_DISC"
+
+    @pytest.mark.asyncio
+    async def test_ws_server_send_disc_event_on_eject(self):
+        """ws_server.send_disc_event is called when disc is ejected."""
+        from amphigory_daemon.main import AmphigoryDaemon
+        from amphigory_daemon.drive import OpticalDrive
+
+        daemon = AmphigoryDaemon()
+        daemon.optical_drive = OpticalDrive(
+            daemon_id='test@host',
+            device="/dev/rdisk4",
+        )
+        daemon.optical_drive.insert_disc(volume="TEST_DISC", disc_type="dvd")
+
+        # Mock ws_server
+        mock_ws_server = MagicMock()
+        mock_ws_server.send_disc_event = AsyncMock()
+        daemon.ws_server = mock_ws_server
+
+        # Simulate disc eject
+        daemon.on_disc_eject("/Volumes/TEST_DISC")
+
+        # Wait for async task to complete
+        await asyncio.sleep(0.1)
+
+        # Verify send_disc_event was called
+        mock_ws_server.send_disc_event.assert_called_once()
+        call_args = mock_ws_server.send_disc_event.call_args
+        assert call_args[0][0] == "ejected"
+        assert call_args[1]["volume_path"] == "/Volumes/TEST_DISC"
