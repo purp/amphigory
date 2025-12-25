@@ -87,9 +87,15 @@ let draggedRow = null;
 
 // Drag and drop handlers
 function handleDragStart(e) {
+    // Clear any stale drag state (e.g., from cancelled drags)
+    if (draggedRow) {
+        draggedRow.classList.remove('dragging');
+    }
     draggedRow = e.target.closest('tr');
-    draggedRow.classList.add('dragging');
-    e.dataTransfer.effectAllowed = 'move';
+    if (draggedRow && draggedRow.classList.contains('track-row')) {
+        draggedRow.classList.add('dragging');
+        e.dataTransfer.effectAllowed = 'move';
+    }
 }
 
 function handleDragOver(e) {
@@ -97,16 +103,18 @@ function handleDragOver(e) {
     e.dataTransfer.dropEffect = 'move';
 
     const targetRow = e.target.closest('tr');
-    if (targetRow && targetRow !== draggedRow) {
+    if (targetRow && targetRow !== draggedRow && targetRow.classList.contains('track-row')) {
         const tbody = targetRow.parentNode;
-        const rows = Array.from(tbody.querySelectorAll('tr'));
+        const rows = Array.from(tbody.querySelectorAll('tr.track-row'));
         const draggedIdx = rows.indexOf(draggedRow);
         const targetIdx = rows.indexOf(targetRow);
 
-        if (draggedIdx < targetIdx) {
-            targetRow.after(draggedRow);
-        } else {
-            targetRow.before(draggedRow);
+        if (draggedIdx >= 0 && targetIdx >= 0) {
+            if (draggedIdx < targetIdx) {
+                targetRow.after(draggedRow);
+            } else {
+                targetRow.before(draggedRow);
+            }
         }
     }
 }
@@ -116,20 +124,35 @@ function handleDrop(e) {
 }
 
 function handleDragEnd(e) {
-    draggedRow.classList.remove('dragging');
-    draggedRow = null;
-    updateTrackOrder();
+    if (draggedRow) {
+        draggedRow.classList.remove('dragging');
+        draggedRow = null;
+        updateTrackOrder();
+    }
 }
 
 function updateTrackOrder() {
     // Update scanResult.tracks to match new DOM order
     const tbody = document.getElementById('tracks-body');
-    const rows = Array.from(tbody.querySelectorAll('tr'));
-    const newOrder = rows.map(row => {
-        const trackNum = parseInt(row.querySelector('input[name="tracks"]').value);
-        return scanResult.tracks.find(t => t.number === trackNum);
-    });
-    scanResult.tracks = newOrder.filter(t => t); // Filter out any undefined
+    if (!tbody || !scanResult || !scanResult.tracks) return;
+
+    const rows = Array.from(tbody.querySelectorAll('tr.track-row'));
+    const newOrder = [];
+
+    for (const row of rows) {
+        const input = row.querySelector('input[name="tracks"]');
+        if (!input) continue;
+
+        const trackNum = parseInt(input.value);
+        if (isNaN(trackNum)) continue;
+
+        const track = scanResult.tracks.find(t => t.number === trackNum);
+        if (track) newOrder.push(track);
+    }
+
+    if (newOrder.length > 0) {
+        scanResult.tracks = newOrder;
+    }
 }
 
 // Check disc status and show scan button
