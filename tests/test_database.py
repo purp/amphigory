@@ -115,3 +115,52 @@ class TestDiscSchema:
             row = await cursor.fetchone()
 
             assert row["fingerprint"] is None
+
+
+class TestSchemaExtensions:
+    @pytest.mark.asyncio
+    async def test_tracks_table_has_classification_columns(self):
+        """Tracks table includes classification and metadata columns."""
+        from amphigory.database import Database
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db = Database(Path(tmpdir) / "test.db")
+            await db.initialize()
+
+            async with db.connection() as conn:
+                cursor = await conn.execute("PRAGMA table_info(tracks)")
+                columns = {row[1] for row in await cursor.fetchall()}
+
+            # New columns for classification
+            assert "track_name" in columns
+            assert "classification_confidence" in columns
+            assert "language" in columns
+            assert "resolution" in columns
+            assert "audio_tracks" in columns
+            assert "subtitle_tracks" in columns
+            assert "chapter_count" in columns
+            assert "segment_map" in columns
+
+            # TV show columns
+            assert "season_number" in columns
+            assert "episode_number" in columns
+            assert "episode_end_number" in columns
+            assert "air_date" in columns
+
+    @pytest.mark.asyncio
+    async def test_discs_table_has_media_type_columns(self):
+        """Discs table includes media type and external ID columns."""
+        from amphigory.database import Database
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db = Database(Path(tmpdir) / "test.db")
+            await db.initialize()
+
+            async with db.connection() as conn:
+                cursor = await conn.execute("PRAGMA table_info(discs)")
+                columns = {row[1] for row in await cursor.fetchall()}
+
+            assert "media_type" in columns
+            assert "show_name" in columns
+            assert "tmdb_id" in columns
+            assert "tvdb_id" in columns
