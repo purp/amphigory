@@ -403,9 +403,11 @@ function displayScanResult(result) {
             <td class="col-size">${formatSize(track.size_bytes)}</td>
             <td class="col-resolution">${escapeHtml(track.resolution || '-')}</td>
             <td class="col-type">
-                <span class="track-type type-${track.classification || 'unknown'}">
-                    ${formatClassification(track.classification)}
-                </span>${getConfidenceIndicator(track.confidence)}
+                <select class="track-type-select type-${track.classification || 'unknown'}"
+                        onchange="updateTrackClassification(this, ${index})"
+                        data-track-index="${index}">
+                    ${getTrackTypeOptions(track.classification || 'unknown')}
+                </select>${getConfidenceIndicator(track.confidence)}
             </td>
             <td class="col-name">
                 <input type="text" name="track_name_${track.number || index}"
@@ -430,13 +432,67 @@ function formatSize(bytes) {
 function formatClassification(classification) {
     const labels = {
         'main_feature': 'Main Feature',
-        'trailers': 'Trailer',
-        'featurettes': 'Featurette',
+        'behind_the_scenes': 'Behind The Scenes',
         'deleted_scenes': 'Deleted Scene',
+        'featurettes': 'Featurette',
+        'interviews': 'Interview',
+        'scenes': 'Scene',
+        'shorts': 'Short',
+        'trailers': 'Trailer',
         'other': 'Other',
         'unknown': 'Unknown',
     };
     return labels[classification] || classification || 'Unknown';
+}
+
+function getTrackTypeOptions(currentClassification) {
+    const types = [
+        'main_feature',
+        'behind_the_scenes',
+        'deleted_scenes',
+        'featurettes',
+        'interviews',
+        'scenes',
+        'shorts',
+        'trailers',
+        'other',
+    ];
+
+    return types.map(type => {
+        const selected = type === currentClassification ? ' selected' : '';
+        return `<option value="${type}"${selected}>${formatClassification(type)}</option>`;
+    }).join('');
+}
+
+function updateTrackClassification(selectElement, trackIndex) {
+    if (!scanResult || !scanResult.tracks || !scanResult.tracks[trackIndex]) {
+        console.error('Invalid track index:', trackIndex);
+        return;
+    }
+
+    const newClassification = selectElement.value;
+    scanResult.tracks[trackIndex].classification = newClassification;
+
+    // Remove confidence indicator when user manually changes classification
+    const row = selectElement.closest('tr');
+    if (row) {
+        const confidenceSpan = row.querySelector('.confidence');
+        if (confidenceSpan) {
+            confidenceSpan.remove();
+        }
+    }
+
+    // Update visual styling on the row
+    row.classList.remove('main-feature');
+    if (newClassification === 'main_feature') {
+        row.classList.add('main-feature');
+    }
+
+    // Update checkbox data attribute
+    const checkbox = row.querySelector('input[name="tracks"]');
+    if (checkbox) {
+        checkbox.dataset.classification = newClassification;
+    }
 }
 
 function getConfidenceIndicator(confidence) {
