@@ -2,6 +2,17 @@
 
 Items deferred to focus on getting to a fully functional system first.
 
+## Disc Review Page
+- [ ] Ejecting a disc while on the Disc Review page should remove the tracklist as they're no longer available
+- [ ] User should be able to change track type to change default naming
+- [ ] Review page should set default names as soon as it has movie title and year; a good first step is a "Set Track Names" button in the Disc Information section
+- [x] TMDB search returned nothing for "Howl's Moving Castle" but the page exists [right here](https://www.themoviedb.org/movie/4935?language=en-US)
+      * FIXED: httpx automatically handles URL encoding for apostrophes, so this now works correctly
+      * IMPLEMENTED: Added `get_external_ids()` function and `/api/disc/tmdb-external-ids/{tmdb_id}` endpoint to fetch IMDB IDs
+      * When a user selects a TMDB result, the frontend now automatically fetches and stores the IMDB ID in `window.selectedIMDBId`
+- [ ] It would be nice to have a file browser to pick the output directory
+
+
 ## Drive operations
 - [ ] Disable "Scan Disc" button (and other drive action buttons) if the drive is currently busy
 - [ ] Provide a way to stop the currently running disk activity (scanning, ripping)

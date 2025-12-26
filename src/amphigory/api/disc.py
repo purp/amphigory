@@ -20,7 +20,7 @@ from amphigory.api.common import generate_task_id
 from amphigory.api.settings import _daemons
 from amphigory.api import disc_repository
 from amphigory.websocket import manager
-from amphigory.tmdb import search_movies
+from amphigory.tmdb import search_movies, get_external_ids
 
 router = APIRouter(prefix="/api/disc", tags=["disc"])
 
@@ -350,3 +350,15 @@ async def search_tmdb(query: str, year: Optional[int] = None):
     """Search TMDB for movie matches."""
     results = await search_movies(query, year)
     return {"results": results}
+
+
+@router.get("/tmdb-external-ids/{tmdb_id}")
+async def get_tmdb_external_ids(tmdb_id: int):
+    """Get external IDs (IMDB, etc.) for a TMDB movie."""
+    external_ids = await get_external_ids(tmdb_id)
+    if external_ids is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Could not fetch external IDs from TMDB"
+        )
+    return external_ids

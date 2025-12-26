@@ -44,3 +44,30 @@ async def search_movies(query: str, year: Optional[int] = None) -> List[Dict[str
             return results
     except (httpx.RequestError, httpx.TimeoutException):
         return []
+
+
+async def get_external_ids(tmdb_id: int) -> Optional[Dict[str, Any]]:
+    """Get external IDs (IMDB, etc.) for a TMDB movie.
+
+    Args:
+        tmdb_id: The TMDB movie ID
+
+    Returns:
+        Dictionary with external IDs like {"imdb_id": "tt0347149", ...} or None on error
+    """
+    if not TMDB_API_KEY:
+        return None
+
+    params = {"api_key": TMDB_API_KEY}
+
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                f"{TMDB_BASE_URL}/movie/{tmdb_id}/external_ids",
+                params=params
+            )
+            if response.status_code != 200:
+                return None
+            return response.json()
+    except (httpx.RequestError, httpx.TimeoutException):
+        return None

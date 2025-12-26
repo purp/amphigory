@@ -722,7 +722,7 @@ function displayTMDBResults(results) {
 }
 
 // Select a TMDB result and fill in the form
-function selectTMDBResult(tmdbId, title, year) {
+async function selectTMDBResult(tmdbId, title, year) {
     document.getElementById('disc-title').value = title;
     if (year) {
         document.getElementById('disc-year').value = year;
@@ -733,6 +733,23 @@ function selectTMDBResult(tmdbId, title, year) {
 
     // Store TMDB ID for later use (e.g., fetching more metadata)
     window.selectedTMDBId = tmdbId;
+
+    // Fetch external IDs to get IMDB ID
+    try {
+        const response = await fetch(`/api/disc/tmdb-external-ids/${tmdbId}`);
+        if (response.ok) {
+            const externalIds = await response.json();
+            if (externalIds.imdb_id) {
+                window.selectedIMDBId = externalIds.imdb_id;
+                console.log('IMDB ID:', externalIds.imdb_id);
+
+                // Optionally show IMDB ID in UI
+                // You could add a visual indicator here if desired
+            }
+        }
+    } catch (error) {
+        console.error('Error fetching external IDs:', error);
+    }
 }
 
 // Set track names based on title, year, and classification

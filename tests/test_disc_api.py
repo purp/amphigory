@@ -759,3 +759,123 @@ class TestFingerprintIntegration:
                 assert "Known disc: The Matrix" in html
             finally:
                 del _daemons["test-daemon"]
+
+
+class TestTMDBEndpoints:
+    """Tests for TMDB search and external IDs endpoints."""
+
+    @pytest.mark.asyncio
+    async def test_search_tmdb_returns_results(self, client):
+        """GET /api/disc/search-tmdb returns TMDB search results."""
+        from unittest.mock import patch, AsyncMock
+
+        # Mock the search_movies function
+        mock_results = [
+            {
+                "id": 603,
+                "title": "The Matrix",
+                "year": 1999,
+                "overview": "A hacker discovers reality is a simulation",
+            },
+            {
+                "id": 604,
+                "title": "The Matrix Reloaded",
+                "year": 2003,
+                "overview": "Neo continues his fight",
+            },
+        ]
+
+        with patch('amphigory.api.disc.search_movies', new_callable=AsyncMock) as mock_search:
+            mock_search.return_value = mock_results
+
+            response = client.get("/api/disc/search-tmdb?query=The Matrix")
+
+            assert response.status_code == 200
+            data = response.json()
+            assert "results" in data
+            assert len(data["results"]) == 2
+            assert data["results"][0]["title"] == "The Matrix"
+            assert data["results"][0]["year"] == 1999
+
+    @pytest.mark.asyncio
+    async def test_search_tmdb_with_year_filter(self, client):
+        """GET /api/disc/search-tmdb filters by year."""
+        from unittest.mock import patch, AsyncMock
+
+        mock_results = [
+            {
+                "id": 603,
+                "title": "The Matrix",
+                "year": 1999,
+                "overview": "A hacker discovers reality is a simulation",
+            },
+        ]
+
+        with patch('amphigory.api.disc.search_movies', new_callable=AsyncMock) as mock_search:
+            mock_search.return_value = mock_results
+
+            response = client.get("/api/disc/search-tmdb?query=The Matrix&year=1999")
+
+            assert response.status_code == 200
+            # Verify year was passed to search_movies
+            mock_search.assert_called_once_with("The Matrix", 1999)
+
+    @pytest.mark.asyncio
+    async def test_search_tmdb_handles_apostrophes(self, client):
+        """GET /api/disc/search-tmdb correctly handles titles with apostrophes."""
+        from unittest.mock import patch, AsyncMock
+
+        mock_results = [
+            {
+                "id": 4935,
+                "title": "Howl's Moving Castle",
+                "year": 2004,
+                "overview": "A Studio Ghibli film",
+            },
+        ]
+
+        with patch('amphigory.api.disc.search_movies', new_callable=AsyncMock) as mock_search:
+            mock_search.return_value = mock_results
+
+            response = client.get("/api/disc/search-tmdb?query=Howl's Moving Castle")
+
+            assert response.status_code == 200
+            data = response.json()
+            assert len(data["results"]) == 1
+            assert data["results"][0]["title"] == "Howl's Moving Castle"
+
+    @pytest.mark.asyncio
+    async def test_get_tmdb_external_ids_returns_imdb_id(self, client):
+        """GET /api/disc/tmdb-external-ids/{tmdb_id} returns IMDB ID."""
+        from unittest.mock import patch, AsyncMock
+
+        mock_external_ids = {
+            "id": 4935,
+            "imdb_id": "tt0347149",
+            "facebook_id": "HowlsMovingCastle",
+            "instagram_id": None,
+            "twitter_id": None,
+        }
+
+        with patch('amphigory.api.disc.get_external_ids', new_callable=AsyncMock) as mock_get:
+            mock_get.return_value = mock_external_ids
+
+            response = client.get("/api/disc/tmdb-external-ids/4935")
+
+            assert response.status_code == 200
+            data = response.json()
+            assert data["imdb_id"] == "tt0347149"
+            assert data["id"] == 4935
+
+    @pytest.mark.asyncio
+    async def test_get_tmdb_external_ids_returns_404_on_error(self, client):
+        """GET /api/disc/tmdb-external-ids/{tmdb_id} returns 404 when TMDB API fails."""
+        from unittest.mock import patch, AsyncMock
+
+        with patch('amphigory.api.disc.get_external_ids', new_callable=AsyncMock) as mock_get:
+            mock_get.return_value = None  # Simulates API error
+
+            response = client.get("/api/disc/tmdb-external-ids/999999")
+
+            assert response.status_code == 404
+            assert "Could not fetch external IDs" in response.json()["detail"]
