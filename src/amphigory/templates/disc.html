@@ -751,8 +751,12 @@ function setTrackNames() {
         return;
     }
 
+    // Strip year from title if present to prevent "(1999) (1999)"
+    const titleWithoutYear = title.replace(/\s*\(\d{4}\)\s*$/, '');
+
     // Count each type for numbering
     const typeCounts = {};
+    const failedTracks = [];
 
     // Process each track
     scanResult.tracks.forEach((track, index) => {
@@ -762,17 +766,15 @@ function setTrackNames() {
 
         if (!nameInput) {
             console.warn(`No input found for track ${trackNumber}`);
+            failedTracks.push(trackNumber);
             return;
         }
 
         let trackName;
 
-        // Main feature: use title only (year added by filename generator)
+        // Main feature: use title, add part number if multiple
         if (classification === 'main_feature') {
-            trackName = title;
-        } else {
-            // Extras: use descriptive name with numbering
-            // Initialize counter for this type if not present
+            // Initialize counter for main features if not present
             if (!typeCounts[classification]) {
                 typeCounts[classification] = 0;
             }
@@ -780,38 +782,33 @@ function setTrackNames() {
 
             const count = typeCounts[classification];
 
-            // Generate name based on classification
-            switch (classification) {
-                case 'trailers':
-                    trackName = `Trailer ${count}`;
-                    break;
-                case 'featurettes':
-                    trackName = `Featurette ${count}`;
-                    break;
-                case 'behind_the_scenes':
-                    trackName = `Behind The Scenes ${count}`;
-                    break;
-                case 'deleted_scenes':
-                    trackName = `Deleted Scene ${count}`;
-                    break;
-                case 'interviews':
-                    trackName = `Interview ${count}`;
-                    break;
-                case 'shorts':
-                    trackName = `Short ${count}`;
-                    break;
-                case 'scenes':
-                    trackName = `Scene ${count}`;
-                    break;
-                default:
-                    trackName = `Extra ${count}`;
-                    break;
+            // Add " - Part N" only if there are multiple main features
+            trackName = titleWithoutYear;
+            if (count > 1) {
+                trackName += ` - Part ${count}`;
             }
+        } else {
+            // Extras: use getDefaultTrackName() as base, then add count
+            const baseName = getDefaultTrackName(track);
+
+            // Initialize counter for this type if not present
+            if (!typeCounts[classification]) {
+                typeCounts[classification] = 0;
+            }
+            typeCounts[classification]++;
+
+            const count = typeCounts[classification];
+            trackName = `${baseName} ${count}`;
         }
 
         // Set the track name input value
         nameInput.value = trackName;
     });
+
+    // Show alert if any tracks failed
+    if (failedTracks.length > 0) {
+        alert(`Warning: Could not set names for ${failedTracks.length} track(s): ${failedTracks.join(', ')}`);
+    }
 }
 
 // Initialize on page load
