@@ -278,6 +278,11 @@ async function checkDiscStatus() {
                 <p class="text-muted">Insert a disc and click refresh to scan.</p>
                 <button class="btn btn-secondary" onclick="checkDiscStatus()">Refresh</button>
             `;
+
+            // Clear scan result and hide sections
+            scanResult = null;
+            document.getElementById('disc-info-section').style.display = 'none';
+            document.getElementById('tracks-section').style.display = 'none';
         }
     } catch (error) {
         console.error('Error checking disc status:', error);

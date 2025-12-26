@@ -177,6 +177,9 @@ class AmphigoryWebSocket {
                 <p class="status-message">No disc detected</p>
             `;
         }
+
+        // Dispatch custom event so disc.html can respond
+        document.dispatchEvent(new CustomEvent('amphigory:disc_event', {detail: data}));
     }
 
     /**
