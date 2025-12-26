@@ -5,8 +5,9 @@ Tasks are stored as JSON files in the shared storage.
 """
 
 import json
+import logging
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
@@ -14,6 +15,8 @@ from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
 
 from amphigory.api.common import generate_task_id
+
+logger = logging.getLogger("uvicorn.error")
 
 
 router = APIRouter(prefix="/api/tasks", tags=["tasks"])
@@ -90,6 +93,56 @@ def update_tasks_json(tasks_dir: Path, task_id: str) -> None:
         json.dump(task_order, f, indent=2)
 
 
+def cleanup_old_tasks(tasks_dir: Path, max_age_hours: int = 24) -> dict:
+    """Clean up old completed tasks and stale tasks.json entries.
+
+    Args:
+        tasks_dir: The tasks directory containing queued/, in_progress/, complete/
+        max_age_hours: Maximum age in hours before completed tasks are removed
+
+    Returns:
+        Dict with counts of removed files and stale entries
+    """
+    result = {"removed_files": 0, "removed_entries": 0}
+    cutoff_time = datetime.now() - timedelta(hours=max_age_hours)
+
+    # Remove old completed task files
+    complete_dir = tasks_dir / "complete"
+    if complete_dir.exists():
+        for task_file in complete_dir.glob("*.json"):
+            mtime = datetime.fromtimestamp(task_file.stat().st_mtime)
+            if mtime < cutoff_time:
+                task_file.unlink()
+                result["removed_files"] += 1
+                logger.info(f"Cleaned up old completed task: {task_file.name}")
+
+    # Collect all existing task IDs from directories
+    existing_ids = set()
+    for subdir in ["queued", "in_progress", "complete"]:
+        dir_path = tasks_dir / subdir
+        if dir_path.exists():
+            for task_file in dir_path.glob("*.json"):
+                existing_ids.add(task_file.stem)
+
+    # Clean up stale entries in tasks.json
+    tasks_json = tasks_dir / "tasks.json"
+    if tasks_json.exists():
+        with open(tasks_json) as f:
+            task_order = json.load(f)
+
+        original_count = len(task_order)
+        task_order = [tid for tid in task_order if tid in existing_ids]
+        result["removed_entries"] = original_count - len(task_order)
+
+        with open(tasks_json, "w") as f:
+            json.dump(task_order, f, indent=2)
+
+        if result["removed_entries"] > 0:
+            logger.info(f"Cleaned up {result['removed_entries']} stale entries from tasks.json")
+
+    return result
+
+
 @router.post("/scan", status_code=status.HTTP_201_CREATED, response_model=TaskResponse)
 async def create_scan_task() -> TaskResponse:
     """Create a new scan task.
@@ -149,6 +202,9 @@ async def create_rip_task(request: CreateRipTaskRequest) -> TaskResponse:
 
     # Update tasks.json
     update_tasks_json(tasks_dir, task_id)
+
+    # Clean up old completed tasks and stale entries
+    cleanup_old_tasks(tasks_dir)
 
     return TaskResponse(task_id=task_id, type="rip", status="queued")
 

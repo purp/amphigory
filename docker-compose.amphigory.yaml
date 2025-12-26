@@ -30,10 +30,19 @@ services:
       # Set this in a .env file or pass via command line
       - MAKEMKV_KEY=${MAKEMKV_KEY:-}
 
+      # TMDB API key for movie metadata lookup
+      - TMDB_API_KEY=${TMDB_API_KEY:-}
+
+      # Path where daemon should write ripped files (host path, not container path)
+      # This is passed to the daemon via task files
+      - DAEMON_RIPPED_DIR=/Volumes/Media Drive 1/Ripped
+
     volumes:
-      # Application data and configuration
+      # Application data (database, etc.)
       - /opt/beehive-docker/amphigory/data:/data
-      - /opt/beehive-docker/amphigory/config:/config
+      # Note: /config is baked into the image with presets and logging config.
+      # To use custom presets, uncomment the line below:
+      # - /opt/beehive-docker/amphigory/config:/config
 
       # Media directories
       - /Volumes/Media Drive 1/Ripped:/media/ripped

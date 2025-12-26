@@ -228,3 +228,86 @@ TINFO:0,11,0,"invalid"
         assert result.tracks[0].chapters == 0
         assert result.tracks[0].chapter_count == 0
         assert result.tracks[0].size_bytes == 0
+
+
+class TestFindAndRenameOutput:
+    """Tests for finding and renaming MakeMKV output files."""
+
+    def test_renames_new_mkv_file_to_desired_name(self, tmp_path):
+        """New .mkv file created by MakeMKV is renamed to desired filename."""
+        from amphigory_daemon.makemkv import find_and_rename_output
+
+        # Simulate existing files in directory before MakeMKV runs
+        existing_file = tmp_path / "existing_video.mkv"
+        existing_file.write_bytes(b"existing content")
+        existing_files = {existing_file}
+
+        # Simulate MakeMKV creating a new file with its default naming
+        makemkv_output = tmp_path / "B1_t04.mkv"
+        makemkv_output.write_bytes(b"ripped content from disc")
+
+        # Call function to find and rename
+        result = find_and_rename_output(
+            output_dir=tmp_path,
+            existing_files=existing_files,
+            desired_filename="Howl's Moving Castle (2004).mkv",
+        )
+
+        # Should return tuple of (renamed_path, original_filename)
+        assert result is not None
+        renamed_path, original_filename = result
+
+        expected_path = tmp_path / "Howl's Moving Castle (2004).mkv"
+        assert renamed_path == expected_path
+        assert renamed_path.exists()
+        assert renamed_path.read_bytes() == b"ripped content from disc"
+
+        # Should include original MakeMKV filename for debugging
+        assert original_filename == "B1_t04.mkv"
+
+        # Original MakeMKV filename should no longer exist
+        assert not makemkv_output.exists()
+
+    def test_returns_none_when_no_new_file_found(self, tmp_path):
+        """Returns None if no new .mkv file was created."""
+        from amphigory_daemon.makemkv import find_and_rename_output
+
+        # Only existing files, no new ones
+        existing_file = tmp_path / "existing_video.mkv"
+        existing_file.write_bytes(b"existing content")
+        existing_files = {existing_file}
+
+        result = find_and_rename_output(
+            output_dir=tmp_path,
+            existing_files=existing_files,
+            desired_filename="Movie.mkv",
+        )
+
+        assert result is None
+
+    def test_handles_multiple_new_files_returns_largest(self, tmp_path):
+        """If multiple new files exist, returns the largest one."""
+        from amphigory_daemon.makemkv import find_and_rename_output
+
+        existing_files = set()
+
+        # MakeMKV sometimes creates multiple files - we want the largest
+        small_file = tmp_path / "B1_t01.mkv"
+        small_file.write_bytes(b"small")
+
+        large_file = tmp_path / "B1_t04.mkv"
+        large_file.write_bytes(b"this is the large main feature file")
+
+        result = find_and_rename_output(
+            output_dir=tmp_path,
+            existing_files=existing_files,
+            desired_filename="Movie.mkv",
+        )
+
+        assert result is not None
+        renamed_path, original_filename = result
+
+        expected_path = tmp_path / "Movie.mkv"
+        assert renamed_path == expected_path
+        assert renamed_path.read_bytes() == b"this is the large main feature file"
+        assert original_filename == "B1_t04.mkv"

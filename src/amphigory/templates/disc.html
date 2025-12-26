@@ -64,6 +64,7 @@
                         <th class="col-duration">Duration</th>
                         <th class="col-size">Size</th>
                         <th class="col-resolution">Resolution</th>
+                        <th class="col-preset">Transcoding Preset</th>
                         <th class="col-type">Type</th>
                         <th class="col-name">Track Name</th>
                         <th class="col-audio">Audio</th>
@@ -95,6 +96,7 @@
 <script>
 let scanResult = null;
 let draggedRow = null;
+let presetData = null;
 
 // HTML escaping to prevent XSS
 function escapeHtml(text) {
@@ -153,6 +155,64 @@ function generateTrackFilename(trackType, movieTitle, year, trackName, language)
     // Extras naming: "Track Name-suffix.mkv"
     const suffix = PLEX_SUFFIXES[trackType] || '-other';
     return `${sanitizedTrackName}${suffix}.mkv`;
+}
+
+// Preset management
+let presetsLoadedPromise = null;
+
+async function loadPresets() {
+    try {
+        const response = await fetch('/api/presets');
+        if (response.ok) {
+            presetData = await response.json();
+            console.log('Presets loaded:', presetData);
+        } else {
+            console.error('Failed to load presets:', response.status);
+        }
+    } catch (error) {
+        console.error('Error loading presets:', error);
+    }
+}
+
+function populateAllPresetDropdowns() {
+    if (!presetData || !scanResult || !scanResult.tracks) return;
+
+    document.querySelectorAll('.preset-select').forEach((select, index) => {
+        const track = scanResult.tracks[index];
+        if (track) {
+            populatePresetDropdown(select, track.resolution);
+        }
+    });
+}
+
+function getRecommendedPreset(resolution) {
+    // Parse resolution and recommend based on dimensions
+    if (!resolution) return 'dvd';
+
+    const match = resolution.match(/(\d+)x(\d+)/);
+    if (!match) return 'dvd';
+
+    const width = parseInt(match[1]);
+    const height = parseInt(match[2]);
+
+    // Same logic as preset_selector.py
+    if (width >= 3840 || height >= 2160) return 'uhd';
+    if (width >= 1920 || height >= 1080) return 'bluray';
+    return 'dvd';
+}
+
+function populatePresetDropdown(selectElement, trackResolution) {
+    if (!presetData) return;
+
+    const recommendedCategory = getRecommendedPreset(trackResolution);
+    // Try both "uhd" and "uhd4k" for UHD content
+    const activePreset = presetData.active[recommendedCategory] ||
+                         presetData.active[recommendedCategory + '4k'];
+
+    selectElement.innerHTML = presetData.presets.map(preset => {
+        const selected = preset.name === activePreset ? ' selected' : '';
+        return `<option value="${escapeHtml(preset.name)}"${selected}>${escapeHtml(preset.name)}</option>`;
+    }).join('');
 }
 
 // Drag and drop handlers
@@ -412,6 +472,11 @@ function displayScanResult(result) {
             <td class="col-duration">${escapeHtml(track.duration || '-')}</td>
             <td class="col-size">${formatSize(track.size_bytes)}</td>
             <td class="col-resolution">${escapeHtml(track.resolution || '-')}</td>
+            <td class="col-preset">
+                <select class="preset-select" data-track-index="${index}">
+                    <!-- Options populated by loadPresets() -->
+                </select>
+            </td>
             <td class="col-type">
                 <select class="track-type-select type-${track.classification || 'unknown'}"
                         onchange="updateTrackClassification(this, ${index})"
@@ -429,6 +494,9 @@ function displayScanResult(result) {
             <td class="col-subs">${track.subtitle_tracks || track.subtitle_streams?.length || 0}</td>
         </tr>
     `).join('');
+
+    // After rendering tracks, populate preset dropdowns
+    populateAllPresetDropdowns();
 
     updateSelectedCount();
 }
@@ -819,9 +887,23 @@ function setTrackNames() {
     // Strip year from title if present to prevent "(1999) (1999)"
     const titleWithoutYear = title.replace(/\s*\(\d{4}\)\s*$/, '');
 
+    // Get IMDB ID if available (set when TMDB result is selected)
+    const imdbId = window.selectedIMDBId || null;
+    const imdbSuffix = imdbId ? ` {imdb-${imdbId}}` : '';
+
+    // First pass: collect main feature durations
+    const mainFeatureDurations = new Set();
+    scanResult.tracks.forEach((track) => {
+        const classification = track.classification || 'other';
+        if (classification === 'main_feature' && track.duration) {
+            mainFeatureDurations.add(track.duration);
+        }
+    });
+
     // Count each type for numbering
     const typeCounts = {};
     const failedTracks = [];
+    let alternateVersionCount = 1; // Start at 1 for the first alternate (main feature is implicit version 1)
 
     // Process each track
     scanResult.tracks.forEach((track, index) => {
@@ -848,10 +930,14 @@ function setTrackNames() {
             const count = typeCounts[classification];
 
             // Add " - Part N" only if there are multiple main features
-            trackName = titleWithoutYear;
+            trackName = `${titleWithoutYear} (${year})${imdbSuffix}`;
             if (count > 1) {
                 trackName += ` - Part ${count}`;
             }
+        } else if (track.duration && mainFeatureDurations.has(track.duration)) {
+            // Alternate version: same duration as a main feature
+            alternateVersionCount++;
+            trackName = `${titleWithoutYear} (${year})${imdbSuffix} - Version ${alternateVersionCount}`;
         } else {
             // Extras: use getDefaultTrackName() as base, then add count
             const baseName = getDefaultTrackName(track);
@@ -902,9 +988,13 @@ async function loadConfig() {
 }
 
 // Initialize on page load
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
+    // Load presets first, then populate dropdowns if scan is already displayed
+    await loadPresets();
     loadConfig();
     checkDiscStatus();
+    // In case scan result was cached and displayed before presets loaded
+    populateAllPresetDropdowns();
 });
 
 // Listen for WebSocket disc events

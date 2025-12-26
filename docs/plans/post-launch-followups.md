@@ -13,8 +13,10 @@ Items deferred to focus on getting to a fully functional system first.
       * FIXED: httpx automatically handles URL encoding for apostrophes, so this now works correctly
       * IMPLEMENTED: Added `get_external_ids()` function and `/api/disc/tmdb-external-ids/{tmdb_id}` endpoint to fetch IMDB IDs
       * When a user selects a TMDB result, the frontend now displays TMDB and IMDB links for verification
-- [ ] It would be nice to have a file browser to pick the output directory
+- [ ] It would be nice to have a file browser to pick the output directory. Perhaps treat it as if I were choosing a file for upload while letting me choose a folder (if possible) or taking the `dirname` of the file I choose (if I can't pick folders)
+- [ ] "Process Selected Tracks" button CSS doesn't look disabled when disabled (verify and fix)
 
+We should include the size of the input source file in rip task responses to give us some data about how long is reasonable to have expected a rip to run.
 
 ## Drive operations
 - [ ] Disable "Scan Disc" button (and other drive action buttons) if the drive is currently busy

@@ -580,6 +580,7 @@ body {
 .col-duration { width: 100px; }
 .col-size { width: 80px; }
 .col-resolution { width: 100px; }
+.col-preset { width: 200px; }
 .col-audio, .col-subs { width: 60px; text-align: center; }
 
 .track-type {
@@ -692,6 +693,25 @@ body {
     background: var(--bg);
     color: var(--text-muted);
     border-color: var(--border);
+}
+
+/* Preset Select Dropdown */
+.preset-select {
+    width: 100%;
+    padding: 0.25rem;
+    font-size: 0.85rem;
+    font-family: inherit;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--card-bg);
+    color: var(--text);
+    cursor: pointer;
+}
+
+.preset-select:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.1);
 }
 
 /* Confidence Indicators */

@@ -334,3 +334,48 @@ def build_rip_command(
         str(track_number),
         str(output_dir),
     ]
+
+
+def find_and_rename_output(
+    output_dir: Path,
+    existing_files: set[Path],
+    desired_filename: str,
+) -> Optional[tuple[Path, str]]:
+    """
+    Find new MakeMKV output file and rename to desired filename.
+
+    MakeMKV doesn't support specifying output filename - it uses its own
+    naming convention (e.g., B1_t04.mkv). This function finds the new file
+    and renames it.
+
+    Args:
+        output_dir: Directory where MakeMKV wrote output
+        existing_files: Set of .mkv files that existed before MakeMKV ran
+        desired_filename: The filename we want the output to have
+
+    Returns:
+        Tuple of (renamed_path, original_filename), or None if no new file was found
+    """
+    # Find all current .mkv files
+    current_files = set(output_dir.glob("*.mkv"))
+
+    # Find new files (created by MakeMKV)
+    new_files = current_files - existing_files
+
+    if not new_files:
+        return None
+
+    # If multiple new files, pick the largest (likely the main feature)
+    if len(new_files) > 1:
+        new_file = max(new_files, key=lambda f: f.stat().st_size)
+    else:
+        new_file = new_files.pop()
+
+    # Remember original filename for debugging
+    original_filename = new_file.name
+
+    # Rename to desired filename
+    desired_path = output_dir / desired_filename
+    new_file.rename(desired_path)
+
+    return (desired_path, original_filename)

@@ -30,6 +30,7 @@ from fastapi.responses import HTMLResponse
 from amphigory.database import Database
 from amphigory.config import get_config
 from amphigory.api import disc_router, jobs_router, settings_router, tasks_router, drives_router, library_router, cleanup_router
+from amphigory.api.presets import router as presets_router
 from amphigory.websocket import manager
 
 # Paths
@@ -85,6 +86,7 @@ app.include_router(tasks_router)
 app.include_router(drives_router)
 app.include_router(library_router)
 app.include_router(cleanup_router)
+app.include_router(presets_router)
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -185,6 +187,11 @@ async def get_daemon_config():
     import os
     data_dir = Path(os.environ.get("AMPHIGORY_DATA", "/data"))
     config = get_config()
+
+    # DAEMON_RIPPED_DIR is the host path where daemon writes ripped files
+    # Falls back to config.ripped_dir (container path) if not set
+    ripped_dir = os.environ.get("DAEMON_RIPPED_DIR") or str(config.ripped_dir)
+
     return {
         "tasks_directory": str(data_dir / "tasks"),
         "websocket_port": 8765,
@@ -192,7 +199,7 @@ async def get_daemon_config():
         "heartbeat_interval": 30,
         "log_level": "INFO",
         "makemkv_path": None,
-        "ripped_directory": str(config.ripped_dir),
+        "ripped_directory": ripped_dir,
     }
 
 

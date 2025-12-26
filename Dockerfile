@@ -23,7 +23,10 @@ RUN --mount=type=cache,target=/root/.cache/pip \
 
 # Copy application code
 COPY src/ ./src/
-COPY config/ ./config/
+
+# Copy config files into the image (presets, logging config)
+# These are bundled with the image so updates come with rebuilds
+COPY config/ /config/
 
 # Create directories for data
 RUN mkdir -p /data /media/ripped /media/plex/inbox /media/plex/data /wiki
@@ -34,4 +37,4 @@ ENV AMPHIGORY_DATA=/data
 
 EXPOSE 6199
 
-CMD ["uvicorn", "amphigory.main:app", "--host", "0.0.0.0", "--port", "6199", "--log-config", "/app/config/logging.yaml"]
+CMD ["uvicorn", "amphigory.main:app", "--host", "0.0.0.0", "--port", "6199", "--log-config", "/config/logging.yaml"]
