@@ -418,3 +418,13 @@ class TestLibraryPage:
         response = test_client.get("/library")
         assert response.status_code == 200
         assert "Library" in response.text
+
+
+class TestCleanupPage:
+    """Tests for /cleanup HTML page."""
+
+    def test_cleanup_page_loads(self, test_client):
+        """Cleanup page loads successfully."""
+        response = test_client.get("/cleanup")
+        assert response.status_code == 200
+        assert "Cleanup" in response.text

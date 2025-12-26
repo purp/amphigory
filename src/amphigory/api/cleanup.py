@@ -7,6 +7,7 @@ from typing import List, Optional
 from datetime import datetime
 
 from fastapi import APIRouter, HTTPException
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel, field_validator
 
 router = APIRouter(prefix="/api/cleanup", tags=["cleanup"])
@@ -340,3 +341,147 @@ async def move_inbox_to_plex(request: MoveRequest) -> MoveResponse:
             errors.append(f"{folder_name}: failed to move - {e}")
 
     return MoveResponse(moved=moved, errors=errors)
+
+
+# HTML endpoints for HTMX
+
+def format_size(bytes_size: int) -> str:
+    """Format bytes as human-readable size.
+
+    Args:
+        bytes_size: Size in bytes
+
+    Returns:
+        Human-readable size string (e.g., "1.5 GB")
+    """
+    if bytes_size == 0:
+        return "0 B"
+
+    units = ["B", "KB", "MB", "GB", "TB"]
+    k = 1024
+    i = 0
+    size = float(bytes_size)
+
+    while size >= k and i < len(units) - 1:
+        size /= k
+        i += 1
+
+    return f"{size:.1f} {units[i]}"
+
+
+def format_age(age_days: int) -> str:
+    """Format age in days as human-readable string.
+
+    Args:
+        age_days: Age in days
+
+    Returns:
+        Human-readable age string
+    """
+    if age_days == 0:
+        return "Today"
+    elif age_days == 1:
+        return "1 day"
+    elif age_days < 7:
+        return f"{age_days} days"
+    elif age_days < 30:
+        weeks = age_days // 7
+        return f"{weeks} week{'s' if weeks > 1 else ''}"
+    elif age_days < 365:
+        months = age_days // 30
+        return f"{months} month{'s' if months > 1 else ''}"
+    else:
+        years = age_days // 365
+        return f"{years} year{'s' if years > 1 else ''}"
+
+
+@router.get("/ripped/html", response_class=HTMLResponse)
+async def list_ripped_folders_html() -> str:
+    """List all folders in ripped directory as HTML rows for HTMX."""
+    ripped_dir = get_ripped_dir()
+
+    if not ripped_dir.exists():
+        return '<tr><td colspan="5" class="loading">No folders found</td></tr>'
+
+    folders = []
+
+    try:
+        for item in ripped_dir.iterdir():
+            if item.is_dir():
+                size = get_folder_size(item)
+                folders.append(FolderInfo(
+                    name=item.name,
+                    size=size,
+                    file_count=count_files(item),
+                    age_days=get_folder_age_days(item),
+                ))
+    except (OSError, PermissionError) as e:
+        return f'<tr><td colspan="5" class="error">Error: {e}</td></tr>'
+
+    # Sort by name
+    folders.sort(key=lambda f: f.name)
+
+    if not folders:
+        return '<tr><td colspan="5" class="loading">No folders found</td></tr>'
+
+    # Generate HTML rows
+    rows = []
+    for folder in folders:
+        rows.append(f'''<tr>
+    <td class="col-select">
+        <input type="checkbox" data-folder="{folder.name}" data-size="{folder.size}"
+               onchange="toggleFolder(this, 'ripped', '{folder.name}', {folder.size})">
+    </td>
+    <td>{folder.name}</td>
+    <td>{format_size(folder.size)}</td>
+    <td>{folder.file_count} file{'s' if folder.file_count != 1 else ''}</td>
+    <td>{format_age(folder.age_days)}</td>
+</tr>''')
+
+    return '\n'.join(rows)
+
+
+@router.get("/inbox/html", response_class=HTMLResponse)
+async def list_inbox_folders_html() -> str:
+    """List all folders in inbox directory as HTML rows for HTMX."""
+    inbox_dir = get_inbox_dir()
+
+    if not inbox_dir.exists():
+        return '<tr><td colspan="5" class="loading">No folders found</td></tr>'
+
+    folders = []
+
+    try:
+        for item in inbox_dir.iterdir():
+            if item.is_dir():
+                size = get_folder_size(item)
+                folders.append(FolderInfo(
+                    name=item.name,
+                    size=size,
+                    file_count=count_files(item),
+                    age_days=get_folder_age_days(item),
+                ))
+    except (OSError, PermissionError) as e:
+        return f'<tr><td colspan="5" class="error">Error: {e}</td></tr>'
+
+    # Sort by name
+    folders.sort(key=lambda f: f.name)
+
+    if not folders:
+        return '<tr><td colspan="5" class="loading">No folders found</td></tr>'
+
+    # Generate HTML rows
+    rows = []
+    for folder in folders:
+        rows.append(f'''<tr>
+    <td class="col-select">
+        <input type="checkbox" data-folder="{folder.name}" data-size="{folder.size}"
+               onchange="toggleFolder(this, 'inbox', '{folder.name}', {folder.size})">
+    </td>
+    <td>{folder.name}</td>
+    <td>{format_size(folder.size)}</td>
+    <td>{folder.file_count} file{'s' if folder.file_count != 1 else ''}</td>
+    <td>{format_age(folder.age_days)}</td>
+</tr>''')
+
+    return '\n'.join(rows)

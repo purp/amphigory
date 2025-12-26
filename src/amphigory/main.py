@@ -123,6 +123,12 @@ async def library_page(request: Request):
     return templates.TemplateResponse(request, "library.html", {"active_page": "library"})
 
 
+@app.get("/cleanup", response_class=HTMLResponse)
+async def cleanup_page(request: Request):
+    """Cleanup page for managing ripped and inbox files."""
+    return templates.TemplateResponse(request, "cleanup.html", {"active_page": "cleanup"})
+
+
 @app.get("/settings", response_class=HTMLResponse)
 async def settings_page(request: Request):
     """Settings page."""
