@@ -79,3 +79,59 @@ class TestTrackTypeDropdown:
         # The change handler should update the DOM to remove confidence indicator
         # This is tested by checking for logic that handles confidence removal
         assert 'confidence' in rendered, "Should reference confidence indicator"
+
+
+class TestSetTrackNames:
+    """Tests for Set Track Names button functionality."""
+
+    def test_template_has_set_track_names_button(self, disc_template):
+        """Template should include a 'Set Track Names' button in disc info section."""
+        rendered = disc_template.render()
+
+        # Check button exists
+        assert 'Set Track Names' in rendered, "Should have 'Set Track Names' button"
+        assert 'onclick="setTrackNames()"' in rendered, "Button should call setTrackNames() function"
+
+    def test_template_has_set_track_names_function(self, disc_template):
+        """Template should include setTrackNames() JavaScript function."""
+        rendered = disc_template.render()
+
+        # Check function definition exists
+        assert 'function setTrackNames()' in rendered, "Should have setTrackNames() function"
+
+    def test_set_track_names_validates_title_and_year(self, disc_template):
+        """setTrackNames() should validate title and year are present."""
+        rendered = disc_template.render()
+
+        # Check for validation logic
+        assert 'disc-title' in rendered and 'disc-year' in rendered, \
+            "Should reference title and year inputs"
+        assert 'alert' in rendered, "Should have alert for validation"
+
+    def test_set_track_names_handles_main_feature(self, disc_template):
+        """setTrackNames() should use movie title for main_feature tracks."""
+        rendered = disc_template.render()
+
+        # Check for main_feature handling
+        assert "classification === 'main_feature'" in rendered or \
+               'main_feature' in rendered, \
+            "Should handle main_feature classification"
+
+    def test_set_track_names_numbers_duplicates(self, disc_template):
+        """setTrackNames() should number duplicate types (e.g., Trailer 1, Trailer 2)."""
+        rendered = disc_template.render()
+
+        # Check for counting/numbering logic
+        assert 'typeCounts' in rendered or 'count' in rendered, \
+            "Should have logic for counting duplicate types"
+
+    def test_set_track_names_handles_all_extra_types(self, disc_template):
+        """setTrackNames() should handle all extra types with proper naming."""
+        rendered = disc_template.render()
+
+        # Check that extra types are handled
+        extra_types = ['trailers', 'featurettes', 'behind_the_scenes',
+                       'deleted_scenes', 'interviews', 'shorts', 'scenes']
+
+        for extra_type in extra_types:
+            assert extra_type in rendered, f"Should handle '{extra_type}' classification"

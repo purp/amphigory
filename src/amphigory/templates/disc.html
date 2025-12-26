@@ -34,6 +34,10 @@
                    class="setting-input setting-input-small" placeholder="YYYY"
                    min="1900" max="2100">
         </div>
+        <div class="form-row">
+            <label></label>
+            <button type="button" class="btn btn-small" onclick="setTrackNames()">Set Track Names</button>
+        </div>
     </section>
 
     <section class="tracks-section card" id="tracks-section" style="display: none;">
@@ -729,6 +733,85 @@ function selectTMDBResult(tmdbId, title, year) {
 
     // Store TMDB ID for later use (e.g., fetching more metadata)
     window.selectedTMDBId = tmdbId;
+}
+
+// Set track names based on title, year, and classification
+function setTrackNames() {
+    const title = document.getElementById('disc-title').value;
+    const year = document.getElementById('disc-year').value;
+
+    // Validate inputs
+    if (!title || !year) {
+        alert('Please enter both a title and year before setting track names.');
+        return;
+    }
+
+    if (!scanResult || !scanResult.tracks) {
+        console.error('No tracks available');
+        return;
+    }
+
+    // Count each type for numbering
+    const typeCounts = {};
+
+    // Process each track
+    scanResult.tracks.forEach((track, index) => {
+        const classification = track.classification || 'other';
+        const trackNumber = track.number || index;
+        const nameInput = document.querySelector(`input[name="track_name_${trackNumber}"]`);
+
+        if (!nameInput) {
+            console.warn(`No input found for track ${trackNumber}`);
+            return;
+        }
+
+        let trackName;
+
+        // Main feature: use title only (year added by filename generator)
+        if (classification === 'main_feature') {
+            trackName = title;
+        } else {
+            // Extras: use descriptive name with numbering
+            // Initialize counter for this type if not present
+            if (!typeCounts[classification]) {
+                typeCounts[classification] = 0;
+            }
+            typeCounts[classification]++;
+
+            const count = typeCounts[classification];
+
+            // Generate name based on classification
+            switch (classification) {
+                case 'trailers':
+                    trackName = `Trailer ${count}`;
+                    break;
+                case 'featurettes':
+                    trackName = `Featurette ${count}`;
+                    break;
+                case 'behind_the_scenes':
+                    trackName = `Behind The Scenes ${count}`;
+                    break;
+                case 'deleted_scenes':
+                    trackName = `Deleted Scene ${count}`;
+                    break;
+                case 'interviews':
+                    trackName = `Interview ${count}`;
+                    break;
+                case 'shorts':
+                    trackName = `Short ${count}`;
+                    break;
+                case 'scenes':
+                    trackName = `Scene ${count}`;
+                    break;
+                default:
+                    trackName = `Extra ${count}`;
+                    break;
+            }
+        }
+
+        // Set the track name input value
+        nameInput.value = trackName;
+    });
 }
 
 // Initialize on page load
