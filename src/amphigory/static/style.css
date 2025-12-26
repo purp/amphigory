@@ -619,6 +619,81 @@ body {
     color: var(--text-muted);
 }
 
+/* Track Type Select Dropdown */
+.track-type-select {
+    font-family: inherit;
+    font-size: 0.75rem;
+    padding: 0.25rem 0.5rem;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--card-bg);
+    color: var(--text);
+    cursor: pointer;
+    font-weight: 500;
+}
+
+.track-type-select:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.1);
+}
+
+/* Type-based color variations for track type select */
+.track-type-select.type-main_feature {
+    background: #dbeafe;
+    color: #1e40af;
+    border-color: #93c5fd;
+}
+
+.track-type-select.type-trailers {
+    background: #fce7f3;
+    color: #9d174d;
+    border-color: #f9a8d4;
+}
+
+.track-type-select.type-featurettes {
+    background: #fef3c7;
+    color: #92400e;
+    border-color: #fde68a;
+}
+
+.track-type-select.type-behind_the_scenes {
+    background: #dcfce7;
+    color: #166534;
+    border-color: #86efac;
+}
+
+.track-type-select.type-deleted_scenes {
+    background: #ede9fe;
+    color: #5b21b6;
+    border-color: #c4b5fd;
+}
+
+.track-type-select.type-interviews {
+    background: #e0f2fe;
+    color: #075985;
+    border-color: #7dd3fc;
+}
+
+.track-type-select.type-scenes {
+    background: #fef9c3;
+    color: #854d0e;
+    border-color: #fde047;
+}
+
+.track-type-select.type-shorts {
+    background: #ffedd5;
+    color: #9a3412;
+    border-color: #fdba74;
+}
+
+.track-type-select.type-other,
+.track-type-select.type-unknown {
+    background: var(--bg);
+    color: var(--text-muted);
+    border-color: var(--border);
+}
+
 /* Confidence Indicators */
 .confidence {
     margin-left: 0.5rem;

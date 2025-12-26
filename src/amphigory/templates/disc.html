@@ -475,12 +475,18 @@ function updateTrackClassification(selectElement, trackIndex) {
 
     // Remove confidence indicator when user manually changes classification
     const row = selectElement.closest('tr');
-    if (row) {
-        const confidenceSpan = row.querySelector('.confidence');
-        if (confidenceSpan) {
-            confidenceSpan.remove();
-        }
+    if (!row) {
+        console.error('Could not find parent row for track select');
+        return;
     }
+
+    const confidenceSpan = row.querySelector('.confidence');
+    if (confidenceSpan) {
+        confidenceSpan.remove();
+    }
+
+    // Update select element class to reflect new classification
+    selectElement.className = `track-type-select type-${newClassification}`;
 
     // Update visual styling on the row
     row.classList.remove('main-feature');
