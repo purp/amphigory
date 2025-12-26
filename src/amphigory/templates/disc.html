@@ -72,7 +72,7 @@
             <div class="rip-options">
                 <div class="option-row">
                     <label for="output-dir">Output Directory:</label>
-                    <input type="text" id="output-dir" name="output_dir" value="/media/ripped" class="setting-input">
+                    <input type="text" id="output-dir" name="output_dir" value="" class="setting-input" placeholder="Loading...">
                 </div>
             </div>
 
@@ -811,8 +811,36 @@ function setTrackNames() {
     }
 }
 
+// Load config and set default output directory
+async function loadConfig() {
+    try {
+        const response = await fetch('/config.json');
+        if (response.ok) {
+            const config = await response.json();
+            const outputDirInput = document.getElementById('output-dir');
+            if (config.ripped_directory) {
+                outputDirInput.value = config.ripped_directory;
+                outputDirInput.placeholder = config.ripped_directory;
+            } else {
+                // Fallback to default if not in config
+                outputDirInput.value = '/media/ripped';
+                outputDirInput.placeholder = '/media/ripped';
+            }
+        }
+    } catch (error) {
+        console.error('Error loading config:', error);
+        // Fallback to default on error
+        const outputDirInput = document.getElementById('output-dir');
+        outputDirInput.value = '/media/ripped';
+        outputDirInput.placeholder = '/media/ripped';
+    }
+}
+
 // Initialize on page load
-document.addEventListener('DOMContentLoaded', checkDiscStatus);
+document.addEventListener('DOMContentLoaded', () => {
+    loadConfig();
+    checkDiscStatus();
+});
 
 // Listen for WebSocket disc events
 document.addEventListener('amphigory:disc_event', (e) => {

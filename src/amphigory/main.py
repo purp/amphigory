@@ -177,6 +177,7 @@ async def get_daemon_config():
     """
     import os
     data_dir = Path(os.environ.get("AMPHIGORY_DATA", "/data"))
+    config = get_config()
     return {
         "tasks_directory": str(data_dir / "tasks"),
         "websocket_port": 8765,
@@ -184,6 +185,7 @@ async def get_daemon_config():
         "heartbeat_interval": 30,
         "log_level": "INFO",
         "makemkv_path": None,
+        "ripped_directory": str(config.ripped_dir),
     }
 
 

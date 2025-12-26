@@ -61,6 +61,13 @@ class TestConfigEndpoint:
         # Can be string or None
         assert data["makemkv_path"] is None or isinstance(data["makemkv_path"], str)
 
+    def test_config_contains_ripped_directory(self, test_client):
+        """Config includes ripped_directory."""
+        response = test_client.get("/config.json")
+        data = response.json()
+        assert "ripped_directory" in data
+        assert isinstance(data["ripped_directory"], str)
+
 
 class TestVersionEndpoint:
     """Tests for /version endpoint."""
