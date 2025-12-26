@@ -3,13 +3,16 @@
 Items deferred to focus on getting to a fully functional system first.
 
 ## Disc Review Page
-- [ ] Ejecting a disc while on the Disc Review page should remove the tracklist as they're no longer available
-- [ ] User should be able to change track type to change default naming
-- [ ] Review page should set default names as soon as it has movie title and year; a good first step is a "Set Track Names" button in the Disc Information section
+- [x] Ejecting a disc while on the Disc Review page should remove the tracklist as they're no longer available
+      * FIXED: WebSocket disc_event now dispatches custom event that disc.html listens for to clear UI
+- [x] User should be able to change track type to change default naming
+      * FIXED: Track type is now an editable dropdown that updates classification for Plex naming
+- [x] Review page should set default names as soon as it has movie title and year; a good first step is a "Set Track Names" button in the Disc Information section
+      * FIXED: "Set Track Names" button auto-populates track names based on title and classification
 - [x] TMDB search returned nothing for "Howl's Moving Castle" but the page exists [right here](https://www.themoviedb.org/movie/4935?language=en-US)
       * FIXED: httpx automatically handles URL encoding for apostrophes, so this now works correctly
       * IMPLEMENTED: Added `get_external_ids()` function and `/api/disc/tmdb-external-ids/{tmdb_id}` endpoint to fetch IMDB IDs
-      * When a user selects a TMDB result, the frontend now automatically fetches and stores the IMDB ID in `window.selectedIMDBId`
+      * When a user selects a TMDB result, the frontend now displays TMDB and IMDB links for verification
 - [ ] It would be nice to have a file browser to pick the output directory
 
 
