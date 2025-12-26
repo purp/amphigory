@@ -11,36 +11,49 @@ async def search_movies(query: str, year: Optional[int] = None) -> List[Dict[str
     if not TMDB_API_KEY:
         return []
 
-    params = {"api_key": TMDB_API_KEY, "query": query}
-    if year:
-        params["year"] = year
+    # Helper to parse results
+    def parse_results(data):
+        results = []
+        for movie in data.get("results", []):
+            movie_id = movie.get("id")
+            title = movie.get("title")
+            if not movie_id or not title:
+                continue  # Skip malformed entries
+
+            release_date = movie.get("release_date", "")
+            try:
+                movie_year = int(release_date[:4]) if release_date and len(release_date) >= 4 else None
+            except (ValueError, TypeError):
+                movie_year = None
+
+            results.append({
+                "id": movie_id,
+                "title": title,
+                "year": movie_year,
+                "overview": movie.get("overview", ""),
+            })
+        return results
 
     try:
         async with httpx.AsyncClient() as client:
+            # First try with year if provided
+            params = {"api_key": TMDB_API_KEY, "query": query}
+            if year:
+                params["year"] = year
+
             response = await client.get(f"{TMDB_BASE_URL}/search/movie", params=params)
             if response.status_code != 200:
                 return []
-            data = response.json()
 
-            results = []
-            for movie in data.get("results", []):
-                movie_id = movie.get("id")
-                title = movie.get("title")
-                if not movie_id or not title:
-                    continue  # Skip malformed entries
+            results = parse_results(response.json())
 
-                release_date = movie.get("release_date", "")
-                try:
-                    year = int(release_date[:4]) if release_date and len(release_date) >= 4 else None
-                except (ValueError, TypeError):
-                    year = None
+            # If no results with year, retry without year filter
+            if not results and year:
+                params_no_year = {"api_key": TMDB_API_KEY, "query": query}
+                response = await client.get(f"{TMDB_BASE_URL}/search/movie", params=params_no_year)
+                if response.status_code == 200:
+                    results = parse_results(response.json())
 
-                results.append({
-                    "id": movie_id,
-                    "title": title,
-                    "year": year,
-                    "overview": movie.get("overview", ""),
-                })
             return results
     except (httpx.RequestError, httpx.TimeoutException):
         return []

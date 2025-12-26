@@ -134,6 +134,47 @@ class TestTMDBSearch:
         assert results[0]["title"] == "Howl's Moving Castle"
         assert results[0]["year"] == 2004
 
+    @pytest.mark.asyncio
+    async def test_search_falls_back_without_year_if_no_results(self):
+        """If year-filtered search returns no results, retry without year."""
+        from amphigory.tmdb import search_movies
+
+        # First call with year returns empty, second without year returns results
+        mock_response_empty = MagicMock()
+        mock_response_empty.status_code = 200
+        mock_response_empty.json.return_value = {"results": []}
+
+        mock_response_with_results = MagicMock()
+        mock_response_with_results.status_code = 200
+        mock_response_with_results.json.return_value = {
+            "results": [
+                {"id": 4935, "title": "Howl's Moving Castle", "release_date": "2004-11-20", "overview": "A studio ghibli film"}
+            ]
+        }
+
+        with patch('amphigory.tmdb.httpx.AsyncClient') as mock_client:
+            mock_instance = AsyncMock()
+            mock_instance.get.side_effect = [mock_response_empty, mock_response_with_results]
+            mock_client.return_value.__aenter__.return_value = mock_instance
+
+            with patch('amphigory.tmdb.TMDB_API_KEY', 'test_key'):
+                results = await search_movies("Howl's Moving Castle", year=2004)
+
+        # Verify two calls were made
+        assert mock_instance.get.call_count == 2
+
+        # First call should have year parameter
+        first_call = mock_instance.get.call_args_list[0]
+        assert first_call[1]['params']['year'] == 2004
+
+        # Second call should not have year parameter
+        second_call = mock_instance.get.call_args_list[1]
+        assert 'year' not in second_call[1]['params']
+
+        # Should return results from second call
+        assert len(results) == 1
+        assert results[0]["title"] == "Howl's Moving Castle"
+
 
 class TestTMDBExternalIds:
     @pytest.mark.asyncio
