@@ -56,6 +56,7 @@ from .makemkv import (
     Progress,
     build_rip_command,
     build_scan_command,
+    find_and_rename_output,
     parse_progress_line,
     parse_scan_output,
 )
@@ -70,6 +71,8 @@ from .models import (
     ErrorCode,
     ScanResult,
     RipResult,
+    DiscSource,
+    FileDestination,
 )
 from .tasks import TaskQueue
 from .websocket import WebSocketServer, WebAppClient
@@ -827,6 +830,10 @@ class AmphigoryDaemon(rumps.App):
             output_dir = Path(task.output.directory)
             output_dir.mkdir(parents=True, exist_ok=True)
 
+            # Snapshot existing .mkv files before MakeMKV runs
+            # (MakeMKV uses its own naming, we'll rename after)
+            existing_files = set(output_dir.glob("*.mkv"))
+
             cmd = build_rip_command(
                 self.makemkv_path,
                 task.track.number,
@@ -878,8 +885,30 @@ class AmphigoryDaemon(rumps.App):
                     ),
                 )
 
-            output_path = output_dir / task.output.filename
+            # Find the file MakeMKV created and rename to desired filename
+            rename_result = find_and_rename_output(
+                output_dir=output_dir,
+                existing_files=existing_files,
+                desired_filename=task.output.filename,
+            )
+
             completed_at = datetime.now()
+
+            if rename_result is None:
+                return TaskResponse(
+                    task_id=task.id,
+                    status=TaskStatus.FAILED,
+                    started_at=started_at,
+                    completed_at=completed_at,
+                    duration_seconds=int((completed_at - started_at).total_seconds()),
+                    error=TaskError(
+                        code=ErrorCode.OUTPUT_WRITE_FAILED,
+                        message="No output file found",
+                        detail="MakeMKV completed but no .mkv file was created",
+                    ),
+                )
+
+            output_path, makemkv_filename = rename_result
 
             return TaskResponse(
                 task_id=task.id,
@@ -887,9 +916,19 @@ class AmphigoryDaemon(rumps.App):
                 started_at=started_at,
                 completed_at=completed_at,
                 duration_seconds=int((completed_at - started_at).total_seconds()),
+                source=DiscSource(
+                    disc_fingerprint=self.optical_drive.fingerprint if self.optical_drive else None,
+                    track_number=task.track.number,
+                    makemkv_track_name=makemkv_filename,
+                    duration=task.track.expected_duration,
+                    size_bytes=task.track.expected_size_bytes,
+                ),
                 result=RipResult(
-                    output_path=str(output_path),
-                    size_bytes=output_path.stat().st_size if output_path.exists() else 0,
+                    destination=FileDestination(
+                        directory=task.output.directory,
+                        filename=task.output.filename,
+                        size_bytes=output_path.stat().st_size,
+                    ),
                 ),
             )
 

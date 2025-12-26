@@ -187,7 +187,7 @@ class TestCompleteTask:
         """Write response JSON to complete/ directory."""
         from amphigory_daemon.tasks import TaskQueue
         from amphigory_daemon.models import (
-            TaskResponse, TaskStatus, RipResult
+            TaskResponse, TaskStatus, RipResult, DiscSource, FileDestination
         )
 
         queue = TaskQueue(tmp_path)
@@ -203,9 +203,19 @@ class TestCompleteTask:
             started_at=datetime(2025, 12, 21, 14, 30, 55),
             completed_at=datetime(2025, 12, 21, 14, 45, 23),
             duration_seconds=868,
+            source=DiscSource(
+                disc_fingerprint="abc123def456",
+                track_number=4,
+                makemkv_track_name="B1_t04.mkv",
+                duration="1:39:56",
+                size_bytes=12000000000,
+            ),
             result=RipResult(
-                output_path="/media/ripped/Movie/Movie.mkv",
-                size_bytes=11397666816,
+                destination=FileDestination(
+                    directory="/media/ripped/Movie",
+                    filename="Movie.mkv",
+                    size_bytes=11397666816,
+                ),
             ),
         )
 
@@ -222,7 +232,7 @@ class TestCompleteTask:
         """Delete task file from in_progress/ after completion."""
         from amphigory_daemon.tasks import TaskQueue
         from amphigory_daemon.models import (
-            TaskResponse, TaskStatus, RipResult
+            TaskResponse, TaskStatus, RipResult, DiscSource, FileDestination
         )
 
         queue = TaskQueue(tmp_path)
@@ -237,9 +247,19 @@ class TestCompleteTask:
             started_at=datetime(2025, 12, 21, 14, 30, 55),
             completed_at=datetime(2025, 12, 21, 14, 45, 23),
             duration_seconds=868,
+            source=DiscSource(
+                disc_fingerprint="abc123def456",
+                track_number=4,
+                makemkv_track_name="B1_t04.mkv",
+                duration="1:39:56",
+                size_bytes=12000000000,
+            ),
             result=RipResult(
-                output_path="/media/ripped/Movie/Movie.mkv",
-                size_bytes=11397666816,
+                destination=FileDestination(
+                    directory="/media/ripped/Movie",
+                    filename="Movie.mkv",
+                    size_bytes=11397666816,
+                ),
             ),
         )
 
@@ -317,7 +337,7 @@ class TestStorageRecovery:
         """save_to_recovery writes response to recovery directory."""
         from amphigory_daemon.tasks import TaskQueue, save_to_recovery
         from amphigory_daemon.models import (
-            TaskResponse, TaskStatus, RipResult
+            TaskResponse, TaskStatus, RipResult, DiscSource, FileDestination
         )
 
         recovery_dir = tmp_path / "recovery"
@@ -327,9 +347,19 @@ class TestStorageRecovery:
             started_at=datetime(2025, 12, 21, 14, 30, 55),
             completed_at=datetime(2025, 12, 21, 14, 45, 23),
             duration_seconds=868,
+            source=DiscSource(
+                disc_fingerprint="abc123def456",
+                track_number=4,
+                makemkv_track_name="B1_t04.mkv",
+                duration="1:39:56",
+                size_bytes=12000000000,
+            ),
             result=RipResult(
-                output_path="/media/ripped/Movie/Movie.mkv",
-                size_bytes=11397666816,
+                destination=FileDestination(
+                    directory="/media/ripped/Movie",
+                    filename="Movie.mkv",
+                    size_bytes=11397666816,
+                ),
             ),
         )
 
@@ -345,7 +375,7 @@ class TestStorageRecovery:
         """save_to_recovery creates recovery directory if needed."""
         from amphigory_daemon.tasks import save_to_recovery
         from amphigory_daemon.models import (
-            TaskResponse, TaskStatus, RipResult
+            TaskResponse, TaskStatus, RipResult, DiscSource, FileDestination
         )
 
         recovery_dir = tmp_path / "nested" / "recovery"
@@ -355,9 +385,19 @@ class TestStorageRecovery:
             started_at=datetime(2025, 12, 21, 14, 30, 55),
             completed_at=datetime(2025, 12, 21, 14, 45, 23),
             duration_seconds=868,
+            source=DiscSource(
+                disc_fingerprint="abc123def456",
+                track_number=4,
+                makemkv_track_name="B1_t04.mkv",
+                duration="1:39:56",
+                size_bytes=12000000000,
+            ),
             result=RipResult(
-                output_path="/media/ripped/Movie/Movie.mkv",
-                size_bytes=11397666816,
+                destination=FileDestination(
+                    directory="/media/ripped/Movie",
+                    filename="Movie.mkv",
+                    size_bytes=11397666816,
+                ),
             ),
         )
 
@@ -369,7 +409,7 @@ class TestStorageRecovery:
         """process_recovery moves files from recovery to complete dir."""
         from amphigory_daemon.tasks import TaskQueue, save_to_recovery, process_recovery
         from amphigory_daemon.models import (
-            TaskResponse, TaskStatus, RipResult
+            TaskResponse, TaskStatus, RipResult, DiscSource, FileDestination
         )
 
         recovery_dir = tmp_path / "recovery"
@@ -383,9 +423,19 @@ class TestStorageRecovery:
             started_at=datetime(2025, 12, 21, 14, 30, 55),
             completed_at=datetime(2025, 12, 21, 14, 45, 23),
             duration_seconds=868,
+            source=DiscSource(
+                disc_fingerprint="abc123def456",
+                track_number=4,
+                makemkv_track_name="B1_t04.mkv",
+                duration="1:39:56",
+                size_bytes=12000000000,
+            ),
             result=RipResult(
-                output_path="/media/ripped/Movie/Movie.mkv",
-                size_bytes=11397666816,
+                destination=FileDestination(
+                    directory="/media/ripped/Movie",
+                    filename="Movie.mkv",
+                    size_bytes=11397666816,
+                ),
             ),
         )
         save_to_recovery(response, recovery_dir)
@@ -418,7 +468,7 @@ class TestStorageRecovery:
         """process_recovery moves all files from recovery."""
         from amphigory_daemon.tasks import TaskQueue, save_to_recovery, process_recovery
         from amphigory_daemon.models import (
-            TaskResponse, TaskStatus, RipResult
+            TaskResponse, TaskStatus, RipResult, DiscSource, FileDestination
         )
 
         recovery_dir = tmp_path / "recovery"
@@ -433,9 +483,19 @@ class TestStorageRecovery:
                 started_at=datetime(2025, 12, 21, 14, 30, 55),
                 completed_at=datetime(2025, 12, 21, 14, 45, 23),
                 duration_seconds=868,
+                source=DiscSource(
+                    disc_fingerprint="abc123def456",
+                    track_number=i,
+                    makemkv_track_name=f"B1_t0{i}.mkv",
+                    duration="1:39:56",
+                    size_bytes=12000000000,
+                ),
                 result=RipResult(
-                    output_path=f"/media/ripped/Movie{i}/Movie.mkv",
-                    size_bytes=11397666816,
+                    destination=FileDestination(
+                        directory=f"/media/ripped/Movie{i}",
+                        filename="Movie.mkv",
+                        size_bytes=11397666816,
+                    ),
                 ),
             )
             save_to_recovery(response, recovery_dir)

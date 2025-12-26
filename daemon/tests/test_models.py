@@ -112,9 +112,11 @@ class TestRipTask:
 
 
 class TestTaskResponse:
-    def test_success_response_to_dict(self):
+    def test_rip_result_with_source_destination(self):
+        """RipResult uses source at response level, destination in result."""
         from amphigory_daemon.models import (
-            TaskResponse, TaskStatus, RipResult, response_to_dict
+            TaskResponse, TaskStatus, RipResult, DiscSource,
+            FileDestination, response_to_dict
         )
         response = TaskResponse(
             task_id="20251221-143052-001",
@@ -122,16 +124,69 @@ class TestTaskResponse:
             started_at=datetime(2025, 12, 21, 14, 30, 55),
             completed_at=datetime(2025, 12, 21, 14, 45, 23),
             duration_seconds=868,
+            source=DiscSource(
+                disc_fingerprint="abc123def456",
+                track_number=4,
+                makemkv_track_name="B1_t04.mkv",
+                duration="1:59:45",
+                size_bytes=12345678901,
+            ),
             result=RipResult(
-                output_path="/media/ripped/Movie/Movie.mkv",
-                size_bytes=11397666816,
+                destination=FileDestination(
+                    directory="/media/ripped/Movie",
+                    filename="Movie.mkv",
+                    size_bytes=11397666816,
+                ),
             ),
         )
         d = response_to_dict(response)
         assert d["task_id"] == "20251221-143052-001"
         assert d["status"] == "success"
         assert d["duration_seconds"] == 868
-        assert d["result"]["output_path"] == "/media/ripped/Movie/Movie.mkv"
+
+        # Source should be at top level (disc info)
+        assert d["source"]["disc_fingerprint"] == "abc123def456"
+        assert d["source"]["track_number"] == 4
+        assert d["source"]["makemkv_track_name"] == "B1_t04.mkv"
+        assert d["source"]["duration"] == "1:59:45"
+        assert d["source"]["size_bytes"] == 12345678901
+
+        # Destination should be in result (file info)
+        assert d["result"]["destination"]["directory"] == "/media/ripped/Movie"
+        assert d["result"]["destination"]["filename"] == "Movie.mkv"
+        assert d["result"]["destination"]["size_bytes"] == 11397666816
+
+    def test_rip_result_source_with_optional_fields(self):
+        """DiscSource handles optional fields gracefully."""
+        from amphigory_daemon.models import (
+            TaskResponse, TaskStatus, RipResult, DiscSource,
+            FileDestination, response_to_dict
+        )
+        response = TaskResponse(
+            task_id="20251221-143052-001",
+            status=TaskStatus.SUCCESS,
+            started_at=datetime(2025, 12, 21, 14, 30, 55),
+            completed_at=datetime(2025, 12, 21, 14, 45, 23),
+            duration_seconds=868,
+            source=DiscSource(
+                disc_fingerprint=None,  # May not be available
+                track_number=4,
+                makemkv_track_name="B1_t04.mkv",
+                duration=None,
+                size_bytes=None,
+            ),
+            result=RipResult(
+                destination=FileDestination(
+                    directory="/media/ripped/Movie",
+                    filename="Movie.mkv",
+                    size_bytes=11397666816,
+                ),
+            ),
+        )
+        d = response_to_dict(response)
+        assert d["source"]["disc_fingerprint"] is None
+        assert d["source"]["duration"] is None
+        assert d["source"]["size_bytes"] is None
 
     def test_failure_response_to_dict(self):
         from amphigory_daemon.models import (

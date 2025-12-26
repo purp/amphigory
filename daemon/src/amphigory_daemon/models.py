@@ -109,10 +109,27 @@ class ScanResult:
 
 
 @dataclass
-class RipResult:
-    """Result of a successful rip operation."""
-    output_path: str
+class DiscSource:
+    """Source information for content from optical disc."""
+    disc_fingerprint: Optional[str]
+    track_number: int
+    makemkv_track_name: str  # Original filename from MakeMKV (e.g., B1_t04.mkv)
+    duration: Optional[str]
+    size_bytes: Optional[int]
+
+
+@dataclass
+class FileDestination:
+    """Destination information for file output."""
+    directory: str
+    filename: str
     size_bytes: int
+
+
+@dataclass
+class RipResult:
+    """Result of a successful rip operation (filesystem output)."""
+    destination: FileDestination
 
 
 @dataclass
@@ -133,6 +150,7 @@ class TaskResponse:
     duration_seconds: int
     result: Optional[Union[ScanResult, RipResult]] = None
     error: Optional[TaskError] = None
+    source: Optional[DiscSource] = None  # For rip tasks: where content came from
 
 
 @dataclass
@@ -211,11 +229,24 @@ def response_to_dict(response: TaskResponse) -> dict:
         "duration_seconds": response.duration_seconds,
     }
 
+    # Source goes at top level (for rip tasks)
+    if response.source is not None:
+        result["source"] = {
+            "disc_fingerprint": response.source.disc_fingerprint,
+            "track_number": response.source.track_number,
+            "makemkv_track_name": response.source.makemkv_track_name,
+            "duration": response.source.duration,
+            "size_bytes": response.source.size_bytes,
+        }
+
     if response.result is not None:
         if isinstance(response.result, RipResult):
             result["result"] = {
-                "output_path": response.result.output_path,
-                "size_bytes": response.result.size_bytes,
+                "destination": {
+                    "directory": response.result.destination.directory,
+                    "filename": response.result.destination.filename,
+                    "size_bytes": response.result.destination.size_bytes,
+                },
             }
         elif isinstance(response.result, ScanResult):
             result["result"] = {
