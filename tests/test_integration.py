@@ -10,6 +10,8 @@ from datetime import datetime
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
+from amphigory.database import Database
+from amphigory.api import disc_repository
 
 
 @pytest.fixture
@@ -282,3 +284,292 @@ class TestWebSocketIntegration:
             assert daemon is not None
             # Verify disc state is NOT stored locally (daemon is source of truth)
             assert not hasattr(daemon, 'disc_inserted') or daemon.disc_inserted is False
+
+
+# --- Track Normalization Integration Tests ---
+
+
+@pytest.fixture
+async def integration_db(tmp_path):
+    """Create a test database for integration tests."""
+    db_path = tmp_path / "integration_test.db"
+    database = Database(db_path)
+    await database.initialize()
+    yield database
+    await database.close()
+
+
+@pytest.fixture
+async def integration_db_path(tmp_path, integration_db):
+    """Provide database path for repository functions in integration tests."""
+    db_path = tmp_path / "integration_test.db"
+    # Temporarily set the db path for the repository module
+    original_get_db = disc_repository.get_db_path
+    disc_repository.get_db_path = lambda: db_path
+    yield db_path
+    disc_repository.get_db_path = original_get_db
+
+
+class TestTrackNormalizationIntegration:
+    """Integration tests for track normalization during disc scan flow."""
+
+    @pytest.mark.asyncio
+    async def test_scan_flow_populates_tracks_table(self, integration_db, integration_db_path):
+        """Full scan creates disc and properly populates tracks table."""
+        # 1. Create scan_data with multiple tracks
+        scan_data = {
+            "disc_name": "TEST_MOVIE",
+            "disc_type": "bluray",
+            "tracks": [
+                {
+                    "number": 0,
+                    "duration": "1:45:00",
+                    "classification": "main_feature",
+                    "confidence": "high",
+                    "score": 0.95,
+                    "size_bytes": 25000000000,
+                    "chapters": 28,
+                    "resolution": "1920x1080",
+                    "segment_map": "1,2,3,4,5",
+                    "makemkv_name": "B1_t00.mkv",
+                    "audio_streams": [
+                        {"language": "eng", "codec": "TrueHD", "channels": 8},
+                        {"language": "spa", "codec": "AC3", "channels": 6},
+                    ],
+                    "subtitle_streams": [
+                        {"language": "eng", "format": "PGS"},
+                        {"language": "spa", "format": "PGS"},
+                    ],
+                },
+                {
+                    "number": 1,
+                    "duration": "0:05:00",
+                    "classification": "extra",
+                    "confidence": "medium",
+                    "score": 0.70,
+                    "size_bytes": 500000000,
+                    "chapters": 1,
+                    "resolution": "1920x1080",
+                    "makemkv_name": "B1_t01.mkv",
+                },
+                {
+                    "number": 2,
+                    "duration": "0:02:30",
+                    "classification": "trailer",
+                    "confidence": "high",
+                    "score": 0.85,
+                    "size_bytes": 200000000,
+                },
+            ],
+        }
+
+        # 2. Call save_disc_scan
+        disc_id = await disc_repository.save_disc_scan("fp_integration_test", scan_data)
+
+        # 3. Query tracks table directly
+        async with integration_db.connection() as conn:
+            cursor = await conn.execute(
+                "SELECT * FROM tracks WHERE disc_id = ? ORDER BY track_number",
+                (disc_id,),
+            )
+            tracks = await cursor.fetchall()
+
+        # 4. Verify tracks match scan_data
+        assert len(tracks) == 3
+
+        # Verify first track (main feature)
+        track_0 = tracks[0]
+        assert track_0["track_number"] == 0
+        assert track_0["track_type"] == "main_feature"
+        assert track_0["duration_seconds"] == 6300  # 1:45:00 = 1*3600 + 45*60
+        assert track_0["classification_confidence"] == "high"
+        assert track_0["classification_score"] == 0.95
+        assert track_0["size_bytes"] == 25000000000
+        assert track_0["chapter_count"] == 28
+        assert track_0["resolution"] == "1920x1080"
+        assert track_0["segment_map"] == "1,2,3,4,5"
+        assert track_0["makemkv_name"] == "B1_t00.mkv"
+        assert track_0["status"] == "discovered"
+
+        # Verify audio/subtitle JSON
+        audio_tracks = json.loads(track_0["audio_tracks"])
+        assert len(audio_tracks) == 2
+        assert audio_tracks[0]["codec"] == "TrueHD"
+        subtitle_tracks = json.loads(track_0["subtitle_tracks"])
+        assert len(subtitle_tracks) == 2
+
+        # Verify second track (extra)
+        track_1 = tracks[1]
+        assert track_1["track_number"] == 1
+        assert track_1["track_type"] == "extra"
+        assert track_1["duration_seconds"] == 300  # 0:05:00 = 5*60
+        assert track_1["classification_confidence"] == "medium"
+
+        # Verify third track (trailer)
+        track_2 = tracks[2]
+        assert track_2["track_number"] == 2
+        assert track_2["track_type"] == "trailer"
+        assert track_2["duration_seconds"] == 150  # 0:02:30 = 2*60 + 30
+
+    @pytest.mark.asyncio
+    async def test_rescan_updates_tracks(self, integration_db, integration_db_path):
+        """Rescanning clears old tracks and inserts new ones from fresh scan data."""
+        # 1. First scan with 3 tracks
+        scan_data_1 = {
+            "disc_name": "TEST_MOVIE_RESCAN",
+            "tracks": [
+                {"number": 0, "duration": "1:30:00", "classification": "main_feature"},
+                {"number": 1, "duration": "0:05:00", "classification": "extra"},
+                {"number": 2, "duration": "0:03:00", "classification": "trailer"},
+            ],
+        }
+
+        disc_id = await disc_repository.save_disc_scan("fp_rescan_integration", scan_data_1)
+
+        # Verify initial 3 tracks exist
+        async with integration_db.connection() as conn:
+            cursor = await conn.execute(
+                "SELECT COUNT(*) as count FROM tracks WHERE disc_id = ?",
+                (disc_id,),
+            )
+            row = await cursor.fetchone()
+        assert row["count"] == 3
+
+        # 2. Rescan with different track data (only 2 tracks, different values)
+        scan_data_2 = {
+            "disc_name": "TEST_MOVIE_RESCAN_UPDATED",
+            "tracks": [
+                {
+                    "number": 0,
+                    "duration": "1:35:00",
+                    "classification": "main_feature",
+                    "confidence": "high",
+                    "size_bytes": 26000000000,
+                },
+                {
+                    "number": 1,
+                    "duration": "0:04:30",
+                    "classification": "deleted_scene",
+                    "confidence": "medium",
+                },
+            ],
+        }
+
+        disc_id_2 = await disc_repository.save_disc_scan("fp_rescan_integration", scan_data_2)
+
+        # 3. Verify same disc ID returned
+        assert disc_id_2 == disc_id
+
+        # 4. Verify old tracks were cleared and new tracks inserted
+        async with integration_db.connection() as conn:
+            cursor = await conn.execute(
+                "SELECT * FROM tracks WHERE disc_id = ? ORDER BY track_number",
+                (disc_id,),
+            )
+            tracks = await cursor.fetchall()
+
+        # Should only have 2 tracks now (old 3 cleared, new 2 inserted)
+        assert len(tracks) == 2
+
+        # Verify new track data
+        assert tracks[0]["track_number"] == 0
+        assert tracks[0]["duration_seconds"] == 5700  # 1:35:00 = 1*3600 + 35*60
+        assert tracks[0]["track_type"] == "main_feature"
+        assert tracks[0]["size_bytes"] == 26000000000
+
+        assert tracks[1]["track_number"] == 1
+        assert tracks[1]["duration_seconds"] == 270  # 0:04:30 = 4*60 + 30
+        assert tracks[1]["track_type"] == "deleted_scene"
+
+    @pytest.mark.asyncio
+    async def test_tracks_match_scan_data(self, integration_db, integration_db_path):
+        """Track table data exactly matches the values in scan_data JSON."""
+        # Create comprehensive scan data
+        scan_data = {
+            "disc_name": "TRACK_DATA_MATCH_TEST",
+            "disc_type": "bluray",
+            "tracks": [
+                {
+                    "number": 0,
+                    "duration": "2:15:30",
+                    "classification": "main_feature",
+                    "confidence": "high",
+                    "score": 0.92,
+                    "size_bytes": 35000000000,
+                    "chapters": 32,
+                    "resolution": "3840x2160",
+                    "segment_map": "1,2,3,4,5,6,7",
+                    "makemkv_name": "B1_t00.mkv",
+                    "audio_streams": [
+                        {"language": "eng", "codec": "TrueHD Atmos", "channels": 8},
+                    ],
+                    "subtitle_streams": [
+                        {"language": "eng", "format": "PGS", "forced": False},
+                        {"language": "eng", "format": "PGS", "forced": True},
+                    ],
+                },
+                {
+                    "number": 5,
+                    "duration": "0:45:00",
+                    "classification": "behind_the_scenes",
+                    "confidence": "low",
+                    "score": 0.55,
+                    "size_bytes": 8000000000,
+                    "chapters": 8,
+                    "resolution": "1920x1080",
+                },
+            ],
+        }
+
+        disc_id = await disc_repository.save_disc_scan("fp_data_match_test", scan_data)
+
+        # Query disc to get scan_data JSON and tracks
+        async with integration_db.connection() as conn:
+            # Get disc with scan_data
+            cursor = await conn.execute(
+                "SELECT scan_data FROM discs WHERE id = ?",
+                (disc_id,),
+            )
+            disc_row = await cursor.fetchone()
+            stored_scan_data = json.loads(disc_row["scan_data"])
+
+            # Get tracks
+            cursor = await conn.execute(
+                "SELECT * FROM tracks WHERE disc_id = ? ORDER BY track_number",
+                (disc_id,),
+            )
+            tracks = await cursor.fetchall()
+
+        # Verify each track matches corresponding scan_data track
+        for i, track_row in enumerate(tracks):
+            scan_track = stored_scan_data["tracks"][i]
+
+            # Core fields match
+            assert track_row["track_number"] == scan_track["number"]
+            assert track_row["track_type"] == scan_track["classification"]
+            assert track_row["classification_confidence"] == scan_track.get("confidence")
+            assert track_row["classification_score"] == scan_track.get("score")
+            assert track_row["size_bytes"] == scan_track.get("size_bytes")
+            assert track_row["chapter_count"] == scan_track.get("chapters")
+            assert track_row["resolution"] == scan_track.get("resolution")
+            assert track_row["segment_map"] == scan_track.get("segment_map")
+            assert track_row["makemkv_name"] == scan_track.get("makemkv_name")
+
+            # Duration parsed correctly
+            duration_str = scan_track["duration"]
+            parts = duration_str.split(":")
+            if len(parts) == 3:
+                expected_seconds = int(parts[0]) * 3600 + int(parts[1]) * 60 + int(parts[2])
+            elif len(parts) == 2:
+                expected_seconds = int(parts[0]) * 60 + int(parts[1])
+            else:
+                expected_seconds = int(parts[0])
+            assert track_row["duration_seconds"] == expected_seconds
+
+            # Audio/subtitle JSON matches if present
+            if scan_track.get("audio_streams"):
+                stored_audio = json.loads(track_row["audio_tracks"])
+                assert stored_audio == scan_track["audio_streams"]
+            if scan_track.get("subtitle_streams"):
+                stored_subs = json.loads(track_row["subtitle_tracks"])
+                assert stored_subs == scan_track["subtitle_streams"]

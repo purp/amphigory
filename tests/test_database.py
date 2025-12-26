@@ -261,6 +261,74 @@ class TestPhase3SchemaExtensions:
         assert row["preset_name"] == "H.265 MKV 1080p30"
 
     @pytest.mark.asyncio
+    async def test_tracks_table_has_makemkv_name(self, db):
+        """Tracks table has makemkv_name column for MakeMKV internal track name."""
+        async with db.connection() as conn:
+            cursor = await conn.execute("PRAGMA table_info(tracks)")
+            columns = {row["name"] for row in await cursor.fetchall()}
+
+        assert "makemkv_name" in columns
+
+    @pytest.mark.asyncio
+    async def test_tracks_table_has_classification_score(self, db):
+        """Tracks table has classification_score column for numeric confidence."""
+        async with db.connection() as conn:
+            cursor = await conn.execute("PRAGMA table_info(tracks)")
+            columns = {row["name"] for row in await cursor.fetchall()}
+
+        assert "classification_score" in columns
+
+    @pytest.mark.asyncio
+    async def test_can_store_makemkv_name(self, db):
+        """Can store and retrieve makemkv_name on a track."""
+        async with db.connection() as conn:
+            await conn.execute("INSERT INTO discs (title) VALUES (?)", ("Test Disc",))
+            await conn.commit()
+
+            cursor = await conn.execute("SELECT id FROM discs WHERE title = ?", ("Test Disc",))
+            disc_id = (await cursor.fetchone())["id"]
+
+            await conn.execute(
+                """INSERT INTO tracks (disc_id, track_number, makemkv_name)
+                   VALUES (?, ?, ?)""",
+                (disc_id, 0, "B1_t04.mkv"),
+            )
+            await conn.commit()
+
+            cursor = await conn.execute(
+                "SELECT makemkv_name FROM tracks WHERE disc_id = ?",
+                (disc_id,),
+            )
+            row = await cursor.fetchone()
+
+        assert row["makemkv_name"] == "B1_t04.mkv"
+
+    @pytest.mark.asyncio
+    async def test_can_store_classification_score(self, db):
+        """Can store and retrieve classification_score as REAL."""
+        async with db.connection() as conn:
+            await conn.execute("INSERT INTO discs (title) VALUES (?)", ("Test Disc",))
+            await conn.commit()
+
+            cursor = await conn.execute("SELECT id FROM discs WHERE title = ?", ("Test Disc",))
+            disc_id = (await cursor.fetchone())["id"]
+
+            await conn.execute(
+                """INSERT INTO tracks (disc_id, track_number, classification_score)
+                   VALUES (?, ?, ?)""",
+                (disc_id, 0, 0.85),
+            )
+            await conn.commit()
+
+            cursor = await conn.execute(
+                "SELECT classification_score FROM tracks WHERE disc_id = ?",
+                (disc_id,),
+            )
+            row = await cursor.fetchone()
+
+        assert abs(row["classification_score"] - 0.85) < 0.001
+
+    @pytest.mark.asyncio
     async def test_migration_backward_compatibility(self):
         """Migrations properly add new columns to existing databases."""
         from amphigory.database import Database
@@ -309,3 +377,167 @@ class TestPhase3SchemaExtensions:
                 assert "preset_name" in tracks_columns
 
             await db.close()
+
+
+class TestScanDataMigration:
+    """Tests for migrating existing scan_data to tracks table."""
+
+    @pytest.mark.asyncio
+    async def test_migrates_existing_scan_data_to_tracks(self):
+        """Existing discs with scan_data get tracks populated during migration."""
+        import json
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "test.db"
+
+            # Step 1: Create a full database then insert disc with scan_data but no tracks
+            db = Database(db_path)
+            await db.initialize()
+
+            # Insert a disc with scan_data directly (simulating existing data)
+            scan_data = {
+                "disc_name": "Test Movie",
+                "tracks": [
+                    {
+                        "number": 0,
+                        "duration": "1:45:30",
+                        "size_bytes": 25000000000,
+                        "chapters": 24,
+                        "resolution": "1920x1080",
+                        "classification": "main_feature",
+                        "confidence": "high",
+                        "score": 0.95,
+                        "segment_map": "1,2,3",
+                        "makemkv_name": "B1_t00.mkv",
+                        "audio_streams": [{"codec": "DTS-HD MA", "language": "English"}],
+                        "subtitle_streams": [{"language": "English"}],
+                    },
+                    {
+                        "number": 1,
+                        "duration": "5:30",
+                        "size_bytes": 500000000,
+                        "chapters": 1,
+                        "resolution": "1920x1080",
+                        "classification": "extra",
+                        "confidence": "medium",
+                        "score": 0.75,
+                        "makemkv_name": "B1_t01.mkv",
+                    },
+                ],
+            }
+            async with db.connection() as conn:
+                await conn.execute(
+                    "INSERT INTO discs (title, fingerprint, scan_data) VALUES (?, ?, ?)",
+                    ("Test Movie", "fp_abc123", json.dumps(scan_data)),
+                )
+                await conn.commit()
+            await db.close()
+
+            # Step 2: Re-open database and run migrations again (should populate tracks)
+            db2 = Database(db_path)
+            await db2.initialize()
+
+            # Step 3: Verify tracks were created
+            async with db2.connection() as conn:
+                cursor = await conn.execute(
+                    "SELECT * FROM tracks ORDER BY track_number"
+                )
+                tracks = [dict(row) for row in await cursor.fetchall()]
+
+            assert len(tracks) == 2
+
+            # Verify first track (main feature)
+            assert tracks[0]["track_number"] == 0
+            assert tracks[0]["duration_seconds"] == 1 * 3600 + 45 * 60 + 30  # 6330 seconds
+            assert tracks[0]["size_bytes"] == 25000000000
+            assert tracks[0]["chapter_count"] == 24
+            assert tracks[0]["resolution"] == "1920x1080"
+            assert tracks[0]["track_type"] == "main_feature"
+            assert tracks[0]["classification_confidence"] == "high"
+            assert abs(tracks[0]["classification_score"] - 0.95) < 0.001
+            assert tracks[0]["makemkv_name"] == "B1_t00.mkv"
+            assert tracks[0]["segment_map"] == "1,2,3"
+            assert tracks[0]["status"] == "discovered"
+
+            # Verify second track (extra)
+            assert tracks[1]["track_number"] == 1
+            assert tracks[1]["duration_seconds"] == 5 * 60 + 30  # 330 seconds
+            assert tracks[1]["track_type"] == "extra"
+
+            await db2.close()
+
+    @pytest.mark.asyncio
+    async def test_skips_discs_without_scan_data(self):
+        """Discs with NULL scan_data are skipped during migration."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "test.db"
+
+            # Create database and insert a disc WITHOUT scan_data
+            db = Database(db_path)
+            await db.initialize()
+
+            async with db.connection() as conn:
+                await conn.execute(
+                    "INSERT INTO discs (title, fingerprint) VALUES (?, ?)",
+                    ("Old Movie", "fp_old123"),
+                )
+                await conn.commit()
+            await db.close()
+
+            # Re-open and run migrations
+            db2 = Database(db_path)
+            await db2.initialize()
+
+            # Verify no tracks were created
+            async with db2.connection() as conn:
+                cursor = await conn.execute("SELECT COUNT(*) as count FROM tracks")
+                row = await cursor.fetchone()
+
+            assert row["count"] == 0
+
+            await db2.close()
+
+    @pytest.mark.asyncio
+    async def test_migration_is_idempotent(self):
+        """Running migration twice doesn't duplicate tracks."""
+        import json
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = Path(tmpdir) / "test.db"
+
+            # Create database and insert disc with scan_data
+            db = Database(db_path)
+            await db.initialize()
+
+            scan_data = {
+                "disc_name": "Test Movie",
+                "tracks": [
+                    {"number": 0, "duration": "1:30:00", "classification": "main_feature"},
+                    {"number": 1, "duration": "5:00", "classification": "extra"},
+                ],
+            }
+            async with db.connection() as conn:
+                await conn.execute(
+                    "INSERT INTO discs (title, fingerprint, scan_data) VALUES (?, ?, ?)",
+                    ("Test Movie", "fp_abc123", json.dumps(scan_data)),
+                )
+                await conn.commit()
+            await db.close()
+
+            # Run migrations FIRST time (should populate tracks)
+            db2 = Database(db_path)
+            await db2.initialize()
+            await db2.close()
+
+            # Run migrations SECOND time
+            db3 = Database(db_path)
+            await db3.initialize()
+
+            # Verify we still only have 2 tracks (not 4)
+            async with db3.connection() as conn:
+                cursor = await conn.execute("SELECT COUNT(*) as count FROM tracks")
+                row = await cursor.fetchone()
+
+            assert row["count"] == 2
+
+            await db3.close()

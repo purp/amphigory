@@ -59,8 +59,8 @@ class TestCreateScanTask:
         data = response.json()
         task_id = data["task_id"]
 
-        # Verify format: YYYY-MM-DDTHH:MM:SS.ffffff-scan
-        pattern = r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}-scan$'
+        # Verify format: YYYYMMDDTHHMMSS.ffffff-scan (ISO8601 basic with dot separator)
+        pattern = r'^\d{8}T\d{6}\.\d{6}-scan$'
         assert re.match(pattern, task_id), f"Task ID '{task_id}' does not match expected format"
 
         # Verify the task type suffix
@@ -122,8 +122,8 @@ class TestCreateRipTask:
         data = response.json()
         task_id = data["task_id"]
 
-        # Verify format: YYYY-MM-DDTHH:MM:SS.ffffff-rip
-        pattern = r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}-rip$'
+        # Verify format: YYYYMMDDTHHMMSS.ffffff-rip (ISO8601 basic with dot separator)
+        pattern = r'^\d{8}T\d{6}\.\d{6}-rip$'
         assert re.match(pattern, task_id), f"Task ID '{task_id}' does not match expected format"
 
         # Verify the task type suffix
@@ -248,3 +248,103 @@ class TestListTasks:
         response = client.get("/api/tasks")
         assert response.status_code == 200
         assert response.json()["tasks"] == []
+
+
+class TestCleanupOldTasks:
+    """Tests for cleanup_old_tasks function."""
+
+    def test_removes_old_completed_tasks(self, tasks_dir):
+        """Completed tasks older than max_age_hours are removed."""
+        import time
+        from amphigory.api.tasks import cleanup_old_tasks
+
+        # Create an old task file (modify mtime to be old)
+        task_file = tasks_dir / "complete" / "old-task.json"
+        with open(task_file, "w") as f:
+            json.dump({"task_id": "old-task", "status": "success"}, f)
+
+        # Set mtime to 25 hours ago
+        old_time = time.time() - (25 * 3600)
+        import os
+        os.utime(task_file, (old_time, old_time))
+
+        # Create a recent task file
+        recent_file = tasks_dir / "complete" / "recent-task.json"
+        with open(recent_file, "w") as f:
+            json.dump({"task_id": "recent-task", "status": "success"}, f)
+
+        result = cleanup_old_tasks(tasks_dir, max_age_hours=24)
+
+        assert result["removed_files"] == 1
+        assert not task_file.exists()
+        assert recent_file.exists()
+
+    def test_removes_stale_tasks_json_entries(self, tasks_dir):
+        """Entries in tasks.json without corresponding files are removed."""
+        from amphigory.api.tasks import cleanup_old_tasks
+
+        # Create a task file
+        task_file = tasks_dir / "queued" / "existing-task.json"
+        with open(task_file, "w") as f:
+            json.dump({"id": "existing-task", "type": "scan"}, f)
+
+        # Create tasks.json with an extra stale entry
+        tasks_json = tasks_dir / "tasks.json"
+        with open(tasks_json, "w") as f:
+            json.dump(["existing-task", "deleted-task", "another-deleted"], f)
+
+        result = cleanup_old_tasks(tasks_dir)
+
+        assert result["removed_entries"] == 2
+
+        with open(tasks_json) as f:
+            remaining = json.load(f)
+        assert remaining == ["existing-task"]
+
+    def test_cleanup_handles_missing_directories(self, tmp_path):
+        """Cleanup doesn't fail if directories don't exist."""
+        from amphigory.api.tasks import cleanup_old_tasks
+
+        empty_tasks_dir = tmp_path / "empty_tasks"
+        empty_tasks_dir.mkdir()
+
+        result = cleanup_old_tasks(empty_tasks_dir)
+
+        assert result["removed_files"] == 0
+        assert result["removed_entries"] == 0
+
+    def test_rip_task_triggers_cleanup(self, client, tasks_dir):
+        """Creating a rip task triggers cleanup of old tasks."""
+        import time
+        import os
+
+        # Create an old completed task
+        task_file = tasks_dir / "complete" / "old-rip-task.json"
+        with open(task_file, "w") as f:
+            json.dump({"task_id": "old-rip-task", "status": "success"}, f)
+
+        # Set mtime to 25 hours ago
+        old_time = time.time() - (25 * 3600)
+        os.utime(task_file, (old_time, old_time))
+
+        # Also add a stale entry to tasks.json
+        tasks_json = tasks_dir / "tasks.json"
+        with open(tasks_json, "w") as f:
+            json.dump(["stale-entry"], f)
+
+        # Create a new rip task (this should trigger cleanup)
+        response = client.post(
+            "/api/tasks/rip",
+            json={"track_number": 1, "output_filename": "movie.mkv"}
+        )
+
+        assert response.status_code == 201
+
+        # Old file should be removed
+        assert not task_file.exists()
+
+        # tasks.json should only have the new task (stale entry removed)
+        with open(tasks_json) as f:
+            entries = json.load(f)
+        assert len(entries) == 1
+        assert entries[0] == response.json()["task_id"]

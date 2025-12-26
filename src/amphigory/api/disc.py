@@ -100,11 +100,18 @@ async def get_disc_status(request: Request) -> DiscStatusResponse:
                 daemon_id, "get_drive_status", {}, timeout=5.0
             )
             if drive_data.get("state") in ["disc_inserted", "scanning", "scanned", "ripping"]:
+                # Get track count from database if fingerprint is available
+                track_count = 0
+                fingerprint = drive_data.get("fingerprint")
+                if fingerprint:
+                    track_count = await disc_repository.get_track_count_by_fingerprint(fingerprint)
+
                 return DiscStatusResponse(
                     has_disc=True,
                     device_path=drive_data.get("device"),
                     volume_name=drive_data.get("disc_volume"),
                     daemon_id=daemon_id,
+                    track_count=track_count,
                 )
         except (KeyError, asyncio.TimeoutError):
             # Daemon not available or timed out - try next one

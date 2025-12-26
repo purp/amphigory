@@ -1,9 +1,44 @@
 """Database connection and initialization."""
 
+import json
 import aiosqlite
 from pathlib import Path
 from contextlib import asynccontextmanager
-from typing import AsyncGenerator
+from typing import AsyncGenerator, Optional, Union
+
+
+def _parse_duration(duration_str: Optional[Union[str, int]]) -> int:
+    """
+    Parse a duration string to total seconds.
+
+    Supports formats:
+    - "H:MM:SS" (hours:minutes:seconds)
+    - "M:SS" (minutes:seconds)
+    - "S" (seconds only)
+    - Integer (already in seconds)
+
+    Args:
+        duration_str: Duration string like "1:39:56", integer seconds, or None
+
+    Returns:
+        Total seconds as integer. Returns 0 for empty/None input.
+    """
+    if not duration_str:
+        return 0
+
+    # If already an integer, return it directly
+    if isinstance(duration_str, int):
+        return duration_str
+
+    parts = duration_str.split(":")
+    if len(parts) == 3:
+        h, m, s = map(int, parts)
+        return h * 3600 + m * 60 + s
+    elif len(parts) == 2:
+        m, s = map(int, parts)
+        return m * 60 + s
+    else:
+        return int(parts[0]) if parts[0] else 0
 
 SCHEMA = """
 -- Processed discs
@@ -66,7 +101,12 @@ CREATE TABLE IF NOT EXISTS tracks (
     air_date DATE,
 
     -- Transcode preset used
-    preset_name TEXT
+    preset_name TEXT,
+
+    -- MakeMKV internal track name (e.g., "B1_t04.mkv")
+    makemkv_name TEXT,
+    -- Numeric classification confidence (0.0-1.0)
+    classification_score REAL
 );
 
 -- Handbrake presets with versioning
@@ -185,6 +225,71 @@ class Database:
         # Migration: Add preset_name to tracks table
         if "preset_name" not in tracks_columns:
             await conn.execute("ALTER TABLE tracks ADD COLUMN preset_name TEXT")
+
+        # Migration: Add makemkv_name and classification_score to tracks table
+        if "makemkv_name" not in tracks_columns:
+            await conn.execute("ALTER TABLE tracks ADD COLUMN makemkv_name TEXT")
+        if "classification_score" not in tracks_columns:
+            await conn.execute("ALTER TABLE tracks ADD COLUMN classification_score REAL")
+
+        # Migration: Populate tracks from scan_data for existing discs
+        # Only migrate discs that have scan_data but no tracks (idempotent)
+        cursor = await conn.execute(
+            """SELECT d.id, d.scan_data
+               FROM discs d
+               LEFT JOIN tracks t ON t.disc_id = d.id
+               WHERE d.scan_data IS NOT NULL
+               GROUP BY d.id
+               HAVING COUNT(t.id) = 0"""
+        )
+        discs_to_migrate = await cursor.fetchall()
+
+        for disc_row in discs_to_migrate:
+            disc_id = disc_row[0]
+            scan_data_json = disc_row[1]
+
+            try:
+                scan_data = json.loads(scan_data_json)
+            except (json.JSONDecodeError, TypeError):
+                continue  # Skip invalid JSON
+
+            for track_data in scan_data.get("tracks", []):
+                duration_seconds = _parse_duration(track_data.get("duration"))
+                audio_tracks = (
+                    json.dumps(track_data.get("audio_streams"))
+                    if track_data.get("audio_streams")
+                    else None
+                )
+                subtitle_tracks = (
+                    json.dumps(track_data.get("subtitle_streams"))
+                    if track_data.get("subtitle_streams")
+                    else None
+                )
+
+                await conn.execute(
+                    """INSERT INTO tracks (
+                        disc_id, track_number, duration_seconds, size_bytes,
+                        chapter_count, resolution, track_type, classification_confidence,
+                        classification_score, segment_map, makemkv_name,
+                        audio_tracks, subtitle_tracks, status
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        disc_id,
+                        track_data.get("number"),
+                        duration_seconds if duration_seconds else None,
+                        track_data.get("size_bytes"),
+                        track_data.get("chapters"),
+                        track_data.get("resolution"),
+                        track_data.get("classification"),
+                        track_data.get("confidence"),
+                        track_data.get("score"),
+                        track_data.get("segment_map"),
+                        track_data.get("makemkv_name"),
+                        audio_tracks,
+                        subtitle_tracks,
+                        "discovered",  # Default status for migrated tracks
+                    ),
+                )
 
     @asynccontextmanager
     async def connection(self) -> AsyncGenerator[aiosqlite.Connection, None]:

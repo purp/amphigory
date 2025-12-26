@@ -52,8 +52,8 @@ class TestDiscScan:
         data = response.json()
         task_id = data["task_id"]
 
-        # Verify format: YYYY-MM-DDTHH:MM:SS.ffffff-scan
-        pattern = r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}-scan$'
+        # Verify format: YYYYMMDDTHHMMSS.ffffff-scan (ISO8601 basic with dot separator)
+        pattern = r'^\d{8}T\d{6}\.\d{6}-scan$'
         assert re.match(pattern, task_id), f"Task ID '{task_id}' does not match expected format"
 
         # Verify the task type suffix
@@ -68,8 +68,8 @@ class TestDiscScan:
 
         assert task_file.exists()
 
-        # Verify file name matches pattern
-        assert re.match(r'^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}-scan\.json$', task_file.name)
+        # Verify file name matches pattern (ISO8601 basic with dot separator)
+        assert re.match(r'^\d{8}T\d{6}\.\d{6}-scan\.json$', task_file.name)
 
     def test_task_id_in_json_matches_filename(self, client, tasks_dir):
         """Task ID in JSON matches the filename (without .json)."""
@@ -757,6 +757,113 @@ class TestFingerprintIntegration:
 
                 # Should show known disc info
                 assert "Known disc: The Matrix" in html
+            finally:
+                del _daemons["test-daemon"]
+
+
+class TestDiscStatusTrackCount:
+    """Tests for track_count in disc status endpoint."""
+
+    @pytest.mark.asyncio
+    async def test_disc_status_includes_track_count_from_database(self, client, tasks_dir):
+        """GET /api/disc/status includes track_count from tracks table."""
+        from amphigory.api.settings import _daemons, RegisteredDaemon
+        from amphigory.database import Database
+        from amphigory.websocket import manager
+        from amphigory.api import disc_repository
+        from datetime import datetime
+        from unittest.mock import patch
+
+        # Initialize database
+        db_path = tasks_dir.parent / "amphigory.db"
+        db = Database(db_path)
+        await db.initialize()
+
+        # Create disc with tracks using save_disc_scan
+        scan_data = {
+            "disc_name": "TEST_MOVIE",
+            "disc_type": "bluray",
+            "tracks": [
+                {"number": 1, "duration": "2:00:00", "size_bytes": 1000000},
+                {"number": 2, "duration": "0:30:00", "size_bytes": 500000},
+                {"number": 3, "duration": "0:05:00", "size_bytes": 100000},
+            ],
+        }
+        await disc_repository.save_disc_scan("fp_track_count_test", scan_data)
+
+        # Register daemon
+        daemon = RegisteredDaemon(
+            daemon_id="test-daemon",
+            makemkvcon_path="/usr/local/bin/makemkvcon",
+            webapp_basedir="/data",
+            connected_at=datetime.now(),
+            last_seen=datetime.now(),
+        )
+        _daemons["test-daemon"] = daemon
+
+        # Mock the WebSocket request to daemon to return fingerprint
+        async def mock_request_from_daemon(daemon_id, method, params, timeout):
+            return {
+                "state": "disc_inserted",
+                "device": "/dev/disk2",
+                "disc_volume": "TEST_DISC",
+                "fingerprint": "fp_track_count_test",
+            }
+
+        with patch.object(manager, 'request_from_daemon', side_effect=mock_request_from_daemon):
+            try:
+                response = client.get("/api/disc/status")
+
+                assert response.status_code == 200
+                data = response.json()
+                assert data["has_disc"] is True
+                # The key assertion: track_count should come from tracks table
+                assert data["track_count"] == 3
+            finally:
+                del _daemons["test-daemon"]
+
+    @pytest.mark.asyncio
+    async def test_disc_status_track_count_zero_when_no_disc_in_db(self, client, tasks_dir):
+        """GET /api/disc/status returns track_count=0 when disc not in database."""
+        from amphigory.api.settings import _daemons, RegisteredDaemon
+        from amphigory.database import Database
+        from amphigory.websocket import manager
+        from datetime import datetime
+        from unittest.mock import patch
+
+        # Initialize database (but don't insert any disc)
+        db_path = tasks_dir.parent / "amphigory.db"
+        db = Database(db_path)
+        await db.initialize()
+
+        # Register daemon
+        daemon = RegisteredDaemon(
+            daemon_id="test-daemon",
+            makemkvcon_path="/usr/local/bin/makemkvcon",
+            webapp_basedir="/data",
+            connected_at=datetime.now(),
+            last_seen=datetime.now(),
+        )
+        _daemons["test-daemon"] = daemon
+
+        # Mock the WebSocket request to daemon with unknown fingerprint
+        async def mock_request_from_daemon(daemon_id, method, params, timeout):
+            return {
+                "state": "disc_inserted",
+                "device": "/dev/disk2",
+                "disc_volume": "UNKNOWN_DISC",
+                "fingerprint": "fp_unknown_not_in_db",
+            }
+
+        with patch.object(manager, 'request_from_daemon', side_effect=mock_request_from_daemon):
+            try:
+                response = client.get("/api/disc/status")
+
+                assert response.status_code == 200
+                data = response.json()
+                assert data["has_disc"] is True
+                # Should be 0 when disc not in database
+                assert data["track_count"] == 0
             finally:
                 del _daemons["test-daemon"]
 
