@@ -11,10 +11,10 @@
         </div>
     </section>
 
-    <section class="current-jobs card">
-        <h2>Active Jobs</h2>
-        <div id="active-jobs" hx-get="/api/jobs/active" hx-trigger="load, every 2s" hx-swap="innerHTML">
-            <p class="no-jobs">Loading...</p>
+    <section class="current-tasks card">
+        <h2>Active Tasks</h2>
+        <div id="active-tasks" hx-get="/api/tasks/active-html" hx-trigger="load, every 2s" hx-swap="innerHTML">
+            <p class="no-tasks">Loading...</p>
         </div>
     </section>
 

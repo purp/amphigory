@@ -4,6 +4,7 @@ These endpoints create/read tasks that the daemon processes.
 Tasks are stored as JSON files in the shared storage.
 """
 
+import html
 import json
 import logging
 import os
@@ -13,6 +14,7 @@ from typing import Optional
 
 import aiosqlite
 from fastapi import APIRouter, HTTPException, status
+from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
 from amphigory.api.common import generate_task_id
@@ -470,6 +472,51 @@ async def dismiss_failed_task(task_id: str):
 
     failed_file.unlink()
     return {"status": "dismissed"}
+
+
+@router.get("/active-html", response_class=HTMLResponse)
+async def get_active_tasks_html() -> str:
+    """Return active tasks as HTML fragment for HTMX."""
+    tasks_dir = get_tasks_dir()
+    in_progress_dir = tasks_dir / "in_progress"
+
+    if not in_progress_dir.exists():
+        return '<p class="text-muted">No active tasks</p>'
+
+    tasks = list(in_progress_dir.glob("*.json"))
+    if not tasks:
+        return '<p class="text-muted">No active tasks</p>'
+
+    html_content = ""
+    for task_file in tasks:
+        try:
+            with open(task_file) as f:
+                data = json.load(f)
+        except (json.JSONDecodeError, IOError):
+            continue
+
+        task_type = data.get("type", "task")
+        task_id = data.get("id", task_file.stem)
+        truncated_id = task_id[11:] if len(task_id) > 20 else task_id  # HHMM.ffffff-type
+
+        # Escape values to prevent XSS
+        safe_type = html.escape(task_type.title())
+        safe_id = html.escape(truncated_id)
+        safe_task_id = html.escape(task_id)
+
+        html_content += f'''
+        <div class="task-item">
+            <div class="task-info">
+                <span class="task-type">{safe_type}</span>
+                <span class="task-id">{safe_id}</span>
+            </div>
+            <div class="progress-bar">
+                <div class="progress-bar-fill" id="progress-{safe_task_id}" style="width: 0%"></div>
+            </div>
+        </div>
+        '''
+
+    return html_content if html_content else '<p class="text-muted">No active tasks</p>'
 
 
 @router.get("/{task_id}", response_model=TaskStatusResponse)

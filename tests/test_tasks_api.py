@@ -717,6 +717,158 @@ class TestCreateProcessTasks:
         assert task_order[1].endswith("-transcode")
 
 
+class TestActiveTasksHtml:
+    """Tests for GET /api/tasks/active-html."""
+
+    def test_returns_no_active_tasks_message_when_empty(self, client, tasks_dir):
+        """Returns empty message when no tasks in in_progress/."""
+        response = client.get("/api/tasks/active-html")
+        assert response.status_code == 200
+        assert response.headers["content-type"] == "text/html; charset=utf-8"
+        assert "No active tasks" in response.text
+
+    def test_returns_no_active_tasks_when_directory_missing(self, tmp_path):
+        """Returns empty message when in_progress/ directory doesn't exist."""
+        # Create tasks_dir without in_progress/
+        tasks_dir = tmp_path / "tasks"
+        tasks_dir.mkdir()
+        (tasks_dir / "queued").mkdir()
+        (tasks_dir / "complete").mkdir()
+        # Explicitly do NOT create in_progress/
+
+        from unittest.mock import patch
+        with patch.dict("os.environ", {"AMPHIGORY_DATA": str(tmp_path)}):
+            from amphigory.main import app
+            from fastapi.testclient import TestClient
+            with TestClient(app) as client:
+                response = client.get("/api/tasks/active-html")
+                assert response.status_code == 200
+                assert "No active tasks" in response.text
+
+    def test_returns_html_with_task_info(self, client, tasks_dir):
+        """Returns HTML fragment with task information."""
+        # Create an in-progress task
+        task_id = "20251227T120000.000000-rip"
+        task_data = {
+            "id": task_id,
+            "type": "rip",
+            "track": {"number": 1}
+        }
+        task_file = tasks_dir / "in_progress" / f"{task_id}.json"
+        with open(task_file, "w") as f:
+            json.dump(task_data, f)
+
+        response = client.get("/api/tasks/active-html")
+        assert response.status_code == 200
+        html = response.text
+
+        # Check for task type (title case)
+        assert "Rip" in html
+        # Check for truncated task ID (everything after position 11)
+        assert "120000.000000-rip" in html
+        # Check for task-item div
+        assert "task-item" in html
+        # Check for progress bar
+        assert "progress-bar" in html
+
+    def test_returns_multiple_tasks(self, client, tasks_dir):
+        """Returns HTML for multiple in-progress tasks."""
+        # Create two in-progress tasks
+        for i, task_type in enumerate(["rip", "transcode"]):
+            task_id = f"20251227T12000{i}.000000-{task_type}"
+            task_data = {"id": task_id, "type": task_type}
+            task_file = tasks_dir / "in_progress" / f"{task_id}.json"
+            with open(task_file, "w") as f:
+                json.dump(task_data, f)
+
+        response = client.get("/api/tasks/active-html")
+        assert response.status_code == 200
+        html = response.text
+
+        # Both tasks should be present
+        assert "Rip" in html
+        assert "Transcode" in html
+        # Two task-item divs
+        assert html.count("task-item") == 2
+
+    def test_handles_malformed_json_gracefully(self, client, tasks_dir):
+        """Gracefully skips malformed JSON files."""
+        # Create a valid task
+        valid_task_id = "20251227T130000.000000-rip"
+        valid_task = {"id": valid_task_id, "type": "rip"}
+        with open(tasks_dir / "in_progress" / f"{valid_task_id}.json", "w") as f:
+            json.dump(valid_task, f)
+
+        # Create a malformed JSON file
+        with open(tasks_dir / "in_progress" / "malformed.json", "w") as f:
+            f.write("{invalid json")
+
+        response = client.get("/api/tasks/active-html")
+        assert response.status_code == 200
+        html = response.text
+
+        # Valid task should be present
+        assert "Rip" in html
+        # Should not crash
+
+    def test_uses_filename_stem_when_id_missing(self, client, tasks_dir):
+        """Falls back to filename stem when 'id' field is missing."""
+        task_id = "20251227T140000.000000-scan"
+        # Task data without 'id' field
+        task_data = {"type": "scan"}
+        task_file = tasks_dir / "in_progress" / f"{task_id}.json"
+        with open(task_file, "w") as f:
+            json.dump(task_data, f)
+
+        response = client.get("/api/tasks/active-html")
+        assert response.status_code == 200
+        # Should use filename stem as task_id
+        assert "140000.000000-scan" in response.text
+
+    def test_defaults_to_task_type_when_missing(self, client, tasks_dir):
+        """Defaults to 'Task' when type field is missing."""
+        task_id = "20251227T150000.000000-unknown"
+        # Task data without 'type' field
+        task_data = {"id": task_id}
+        task_file = tasks_dir / "in_progress" / f"{task_id}.json"
+        with open(task_file, "w") as f:
+            json.dump(task_data, f)
+
+        response = client.get("/api/tasks/active-html")
+        assert response.status_code == 200
+        # Should default to "Task" (title case of "task")
+        assert "Task" in response.text
+
+    def test_escapes_html_in_task_data(self, client, tasks_dir):
+        """HTML special characters in task data are escaped to prevent XSS."""
+        # Create a task with HTML/XSS in type and id fields
+        task_id = "<script>alert('xss')</script>"
+        task_data = {
+            "id": task_id,
+            "type": "<img src=x onerror=alert('xss')>"
+        }
+        # Use a safe filename for the task file
+        task_file = tasks_dir / "in_progress" / "malicious-task.json"
+        with open(task_file, "w") as f:
+            json.dump(task_data, f)
+
+        response = client.get("/api/tasks/active-html")
+        assert response.status_code == 200
+        html_response = response.text
+
+        # Raw HTML tags should NOT appear (angle brackets must be escaped)
+        # This prevents XSS because browsers won't interpret escaped tags as HTML
+        assert "<script>" not in html_response
+        assert "</script>" not in html_response
+        assert "<img " not in html_response
+
+        # Escaped angle brackets SHOULD appear
+        assert "&lt;script&gt;" in html_response
+        assert "&lt;/script&gt;" in html_response
+        # The type gets .title() applied, so <img becomes <Img
+        assert "&lt;img " in html_response.lower()
+
+
 class TestFailedTasksAPI:
     """Tests for failed task endpoints."""
 
