@@ -69,6 +69,41 @@ class TestScanTask:
         assert task.type == TaskType.SCAN
 
 
+class TestTaskFromDictWithInputOutput:
+    """Test parsing task with input/output dependency fields."""
+
+    def test_task_from_dict_with_input_output(self):
+        """Test parsing task with input/output dependency fields."""
+        from amphigory_daemon.models import task_from_dict
+
+        data = {
+            "id": "20251227T143052.123456-rip",
+            "type": "rip",
+            "created_at": "2025-12-27T14:30:52.123456",
+            "input": None,
+            "output": "/media/ripped/Movie (2024)/Movie (2024).mkv",
+            "track": {"number": 1, "expected_size_bytes": 1000, "expected_duration": "1:30:00"},
+            "output_info": {"directory": "/media/ripped/Movie (2024)/", "filename": "Movie (2024).mkv"},
+        }
+        task = task_from_dict(data)
+        assert task.input_path is None
+        assert task.output_path == "/media/ripped/Movie (2024)/Movie (2024).mkv"
+
+    def test_scan_task_has_input_output_fields(self):
+        """Test that scan tasks have input_path/output_path fields."""
+        from amphigory_daemon.models import ScanTask, TaskType, task_from_dict
+
+        data = {
+            "id": "20251227T143052.123456-scan",
+            "type": "scan",
+            "created_at": "2025-12-27T14:30:52.123456",
+        }
+        task = task_from_dict(data)
+        assert isinstance(task, ScanTask)
+        assert task.input_path is None
+        assert task.output_path is None
+
+
 class TestRipTask:
     def test_create_rip_task(self):
         from amphigory_daemon.models import RipTask, TaskType, TrackInfo, OutputInfo

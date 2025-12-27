@@ -50,6 +50,8 @@ class ScanTask:
     id: str
     type: TaskType
     created_at: datetime
+    input_path: Optional[str] = None  # Always None for scan
+    output_path: Optional[str] = None  # Scan results go to complete/, not a file
 
 
 @dataclass
@@ -60,6 +62,8 @@ class RipTask:
     created_at: datetime
     track: TrackInfo
     output: OutputInfo
+    input_path: Optional[str] = None  # Always None for rip (reads from disc)
+    output_path: Optional[str] = None  # Path where ripped file will be written
 
 
 @dataclass
@@ -197,10 +201,13 @@ def task_from_dict(data: dict) -> Union[ScanTask, RipTask]:
             id=data["id"],
             type=task_type,
             created_at=created_at,
+            input_path=data.get("input"),
+            output_path=data.get("output"),
         )
     elif task_type == TaskType.RIP:
         track_data = data["track"]
-        output_data = data["output"]
+        # Support both "output_info" (new format) and "output" (legacy format) for OutputInfo
+        output_info_data = data.get("output_info") or data.get("output")
         return RipTask(
             id=data["id"],
             type=task_type,
@@ -211,9 +218,11 @@ def task_from_dict(data: dict) -> Union[ScanTask, RipTask]:
                 expected_duration=track_data["expected_duration"],
             ),
             output=OutputInfo(
-                directory=output_data["directory"],
-                filename=output_data["filename"],
+                directory=output_info_data["directory"],
+                filename=output_info_data["filename"],
             ),
+            input_path=data.get("input"),
+            output_path=data.get("output") if "output_info" in data else None,
         )
     else:
         raise ValueError(f"Unknown task type: {task_type}")
