@@ -70,25 +70,51 @@ function renderFailedTasks() {
     }
 
     section.style.display = 'block';
-    container.innerHTML = failedTasks.map(task => `
-        <div class="task-item task-failed">
-            <div class="task-header">
-                <span class="task-type">${task.type || 'task'}</span>
-                <span class="task-id" title="${task.id}">${task.id.substring(0, 15)}...</span>
+    container.innerHTML = failedTasks.map(task => {
+        const errorMsg = task.error?.message || task.error?.detail || 'Unknown error';
+        const errorDetail = task.error?.detail || '';
+
+        let detailsHtml = `
+            <div class="detail-row"><span class="detail-label">Task ID:</span> ${task.id}</div>
+            <div class="detail-row"><span class="detail-label">Type:</span> ${task.type || 'task'}</div>
+            <div class="detail-row"><span class="detail-label">Started:</span> ${formatDateTime(task.started_at)}</div>
+            <div class="detail-row"><span class="detail-label">Failed:</span> ${formatDateTime(task.completed_at)}</div>
+        `;
+
+        if (task.error?.code) {
+            detailsHtml += `<div class="detail-row"><span class="detail-label">Error Code:</span> ${task.error.code}</div>`;
+        }
+        detailsHtml += `<div class="detail-row detail-error"><span class="detail-label">Error:</span> ${errorMsg}</div>`;
+        if (errorDetail && errorDetail !== errorMsg) {
+            detailsHtml += `<div class="detail-row detail-error"><span class="detail-label">Detail:</span> ${errorDetail}</div>`;
+        }
+
+        return `
+            <div class="task-item task-failed" onclick="toggleFailedTaskDetails(event, '${task.id}')">
+                <div class="task-header">
+                    <span class="task-status status-failed">&#10007; failed</span>
+                    <span class="task-type">${task.type || 'task'}</span>
+                    <span class="task-id" title="${task.id}">${task.id.substring(0, 12)}...</span>
+                    <span class="task-expand" id="expand-failed-${task.id}">&#9660;</span>
+                </div>
+                <div class="task-error-summary">
+                    ${errorMsg}
+                </div>
+                <div class="task-details" id="details-failed-${task.id}" style="display: none;">
+                    ${detailsHtml}
+                </div>
+                <div class="task-actions">
+                    <button class="btn btn-small btn-secondary" onclick="dismissFailedTask(event, '${task.id}')">
+                        Dismiss
+                    </button>
+                </div>
             </div>
-            <div class="task-error">
-                ${task.error?.message || task.error?.detail || 'Unknown error'}
-            </div>
-            <div class="task-actions">
-                <button class="btn btn-small btn-secondary" onclick="dismissFailedTask('${task.id}')">
-                    Dismiss
-                </button>
-            </div>
-        </div>
-    `).join('');
+        `;
+    }).join('');
 }
 
-async function dismissFailedTask(taskId) {
+async function dismissFailedTask(event, taskId) {
+    event.stopPropagation();
     if (!confirm('Dismiss this failed task?')) return;
 
     try {
@@ -104,6 +130,22 @@ async function dismissFailedTask(taskId) {
     } catch (error) {
         console.error('Error dismissing task:', error);
         alert('Error dismissing task');
+    }
+}
+
+function toggleFailedTaskDetails(event, taskId) {
+    // Don't toggle if clicking on the dismiss button
+    if (event.target.closest('.task-actions')) return;
+
+    const details = document.getElementById(`details-failed-${taskId}`);
+    const expand = document.getElementById(`expand-failed-${taskId}`);
+
+    if (details.style.display === 'none') {
+        details.style.display = 'block';
+        expand.innerHTML = '&#9650;';
+    } else {
+        details.style.display = 'none';
+        expand.innerHTML = '&#9660;';
     }
 }
 

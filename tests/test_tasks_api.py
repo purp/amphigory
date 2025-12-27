@@ -715,3 +715,132 @@ class TestCreateProcessTasks:
         assert len(task_order) == 2
         assert task_order[0].endswith("-rip")
         assert task_order[1].endswith("-transcode")
+
+
+class TestFailedTasksAPI:
+    """Tests for failed task endpoints."""
+
+    @pytest.fixture
+    def failed_tasks_dir(self, tasks_dir):
+        """Create the failed tasks directory."""
+        failed_dir = tasks_dir / "failed"
+        failed_dir.mkdir(parents=True, exist_ok=True)
+        return failed_dir
+
+    def test_get_failed_tasks_returns_empty_list(self, client, failed_tasks_dir):
+        """GET /api/tasks/failed returns empty list when no failed tasks."""
+        response = client.get("/api/tasks/failed")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["tasks"] == []
+
+    def test_get_failed_tasks_returns_tasks(self, client, failed_tasks_dir):
+        """GET /api/tasks/failed returns tasks from failed/ directory."""
+        # Create a failed task
+        task_data = {
+            "task_id": "20251226T140000.000000-rip",
+            "type": "rip",
+            "status": "failed",
+            "error": {
+                "code": "RIP_ERROR",
+                "message": "Disc read error",
+                "detail": "Unable to read sector 12345"
+            }
+        }
+        with open(failed_tasks_dir / "20251226T140000.000000-rip.json", "w") as f:
+            json.dump(task_data, f)
+
+        response = client.get("/api/tasks/failed")
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data["tasks"]) == 1
+        task = data["tasks"][0]
+        assert task["id"] == "20251226T140000.000000-rip"
+        assert task["type"] == "rip"
+        assert task["status"] == "failed"
+        assert task["error"]["message"] == "Disc read error"
+
+    def test_get_failed_tasks_returns_multiple_tasks(self, client, failed_tasks_dir):
+        """GET /api/tasks/failed returns all tasks from failed/ directory."""
+        # Create multiple failed tasks
+        for i in range(3):
+            task_data = {
+                "task_id": f"20251226T{140000 + i:06d}.000000-rip",
+                "type": "rip",
+                "status": "failed",
+                "error": {"message": f"Error {i}"}
+            }
+            with open(failed_tasks_dir / f"20251226T{140000 + i:06d}.000000-rip.json", "w") as f:
+                json.dump(task_data, f)
+
+        response = client.get("/api/tasks/failed")
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data["tasks"]) == 3
+
+    def test_delete_failed_task_removes_file(self, client, failed_tasks_dir):
+        """DELETE /api/tasks/failed/{task_id} removes task from failed/ directory."""
+        task_id = "20251226T150000.000000-rip"
+        task_file = failed_tasks_dir / f"{task_id}.json"
+        task_data = {
+            "task_id": task_id,
+            "type": "rip",
+            "status": "failed",
+            "error": {"message": "Some error"}
+        }
+        with open(task_file, "w") as f:
+            json.dump(task_data, f)
+
+        assert task_file.exists()
+
+        response = client.delete(f"/api/tasks/failed/{task_id}")
+        assert response.status_code == 200
+        assert response.json()["status"] == "dismissed"
+        assert not task_file.exists()
+
+    def test_delete_failed_task_not_found(self, client, failed_tasks_dir):
+        """DELETE /api/tasks/failed/{task_id} returns 404 for non-existent task."""
+        response = client.delete("/api/tasks/failed/nonexistent-task")
+        assert response.status_code == 404
+        data = response.json()
+        assert "not found" in data["detail"].lower()
+
+    def test_delete_failed_task_validates_task_id_with_dotdot(self, client, failed_tasks_dir):
+        """DELETE /api/tasks/failed/{task_id} rejects task IDs containing '..'."""
+        # Task ID containing ".." should be rejected
+        response = client.delete("/api/tasks/failed/task..id")
+        assert response.status_code == 400
+        assert "invalid" in response.json()["detail"].lower()
+
+    def test_delete_failed_task_validates_task_id_with_backslash(self, client, failed_tasks_dir):
+        """DELETE /api/tasks/failed/{task_id} rejects task IDs containing backslashes."""
+        import urllib.parse
+
+        # Task ID containing backslash should be rejected (URL-encode to pass routing)
+        malicious_id = "task\\id"
+        encoded_id = urllib.parse.quote(malicious_id, safe='')
+        response = client.delete(f"/api/tasks/failed/{encoded_id}")
+        assert response.status_code == 400
+        assert "invalid" in response.json()["detail"].lower()
+
+    def test_delete_failed_task_with_url_encoded_id(self, client, failed_tasks_dir):
+        """DELETE /api/tasks/failed/{task_id} works with URL-encoded task IDs."""
+        # Task IDs can have dots which might need encoding
+        task_id = "20251226T160000.000000-rip"
+        task_file = failed_tasks_dir / f"{task_id}.json"
+        task_data = {
+            "task_id": task_id,
+            "type": "rip",
+            "status": "failed",
+            "error": {"message": "Error"}
+        }
+        with open(task_file, "w") as f:
+            json.dump(task_data, f)
+
+        # URL-encoded version of task_id
+        import urllib.parse
+        encoded_id = urllib.parse.quote(task_id, safe='')
+
+        response = client.delete(f"/api/tasks/failed/{encoded_id}")
+        assert response.status_code == 200
+        assert not task_file.exists()
