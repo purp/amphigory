@@ -16,6 +16,16 @@ class TestTaskType:
         from amphigory_daemon.models import TaskType
         assert TaskType.RIP.value == "rip"
 
+    def test_task_type_includes_transcode(self):
+        """Test TaskType enum includes transcode."""
+        from amphigory_daemon.models import TaskType
+        assert TaskType.TRANSCODE.value == "transcode"
+
+    def test_task_type_includes_insert(self):
+        """Test TaskType enum includes insert."""
+        from amphigory_daemon.models import TaskType
+        assert TaskType.INSERT.value == "insert"
+
 
 class TestTaskStatus:
     def test_success_value(self):

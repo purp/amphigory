@@ -10,6 +10,8 @@ class TaskType(Enum):
     """Type of task to process."""
     SCAN = "scan"
     RIP = "rip"
+    TRANSCODE = "transcode"
+    INSERT = "insert"
 
 
 class TaskStatus(Enum):
