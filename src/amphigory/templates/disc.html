@@ -33,6 +33,9 @@
             <input type="number" id="disc-year" name="disc_year"
                    class="setting-input setting-input-small" placeholder="YYYY"
                    min="1900" max="2100">
+            <button type="button" class="btn btn-secondary" id="save-disc-info-btn" onclick="saveDiscInfo()" disabled>
+                Save Disc Info
+            </button>
         </div>
         <div class="form-row" id="metadata-links-row" style="display: none;">
             <label>Metadata:</label>
@@ -807,6 +810,7 @@ async function selectTMDBResult(tmdbId, title, year) {
 
     // Store TMDB ID for later use (e.g., fetching more metadata)
     window.selectedTMDBId = tmdbId;
+    enableSaveButton();
 
     // Show metadata links row
     const metadataLinksRow = document.getElementById('metadata-links-row');
@@ -985,6 +989,58 @@ async function loadConfig() {
         outputDirInput.value = '/media/ripped';
         outputDirInput.placeholder = '/media/ripped';
     }
+}
+
+// Save disc info to database
+async function saveDiscInfo() {
+    const fingerprint = scanResult?.fingerprint;
+    if (!fingerprint) {
+        alert('No disc fingerprint available');
+        return;
+    }
+
+    const title = document.getElementById('disc-title').value.trim();
+    const year = document.getElementById('disc-year').value.trim();
+
+    if (!title || !year) {
+        alert('Please enter title and year');
+        return;
+    }
+
+    try {
+        const response = await fetch('/api/disc/metadata', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                fingerprint: fingerprint,
+                tmdb_id: window.selectedTMDBId || null,
+                imdb_id: window.selectedIMDBId || null,
+                title: title,
+                year: parseInt(year)
+            })
+        });
+
+        if (response.ok) {
+            // Visual feedback
+            const btn = document.getElementById('save-disc-info-btn');
+            btn.textContent = 'Saved!';
+            btn.disabled = true;
+            setTimeout(() => {
+                btn.textContent = 'Save Disc Info';
+                btn.disabled = false;
+            }, 2000);
+        } else {
+            const error = await response.json();
+            alert('Failed to save: ' + (error.detail || 'Unknown error'));
+        }
+    } catch (error) {
+        alert('Failed to save: ' + error.message);
+    }
+}
+
+function enableSaveButton() {
+    const btn = document.getElementById('save-disc-info-btn');
+    if (btn) btn.disabled = false;
 }
 
 // Initialize on page load
