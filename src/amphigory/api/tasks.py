@@ -99,12 +99,31 @@ def update_tasks_json(tasks_dir: Path, task_id: str) -> None:
         json.dump(task_order, f, indent=2)
 
 
+def translate_daemon_path_to_webapp(path: str) -> str:
+    """Translate a path from daemon's perspective to webapp's perspective.
+
+    The daemon writes paths like /Volumes/Media Drive 1/Ripped/...
+    The webapp sees these as /media/ripped/...
+
+    Uses DAEMON_RIPPED_DIR and AMPHIGORY_RIPPED_DIR environment variables.
+    """
+    daemon_prefix = os.environ.get("DAEMON_RIPPED_DIR", "")
+    webapp_prefix = os.environ.get("AMPHIGORY_RIPPED_DIR", "/media/ripped")
+
+    if daemon_prefix and path.startswith(daemon_prefix):
+        return webapp_prefix + path[len(daemon_prefix):]
+    return path
+
+
 async def sync_completed_rip_tasks(tasks_dir: Path) -> int:
     """Sync completed rip tasks to the database.
 
     For each successful rip task in complete/, finds the corresponding track
     by disc fingerprint and track number, then updates the track's ripped_path
     and status if not already set.
+
+    Paths are translated from daemon perspective to webapp perspective using
+    DAEMON_RIPPED_DIR and AMPHIGORY_RIPPED_DIR environment variables.
 
     Args:
         tasks_dir: The tasks directory containing complete/
@@ -146,8 +165,9 @@ async def sync_completed_rip_tasks(tasks_dir: Path) -> int:
                 if not fingerprint or track_number is None or not filename:
                     continue
 
-                # Build full ripped path
-                ripped_path = f"{directory}{filename}"
+                # Build full ripped path and translate to webapp perspective
+                raw_path = f"{directory}{filename}"
+                ripped_path = translate_daemon_path_to_webapp(raw_path)
 
                 # Find track by fingerprint and track_number, only update if ripped_path is NULL
                 cursor = await conn.execute(

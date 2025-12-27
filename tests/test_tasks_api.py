@@ -579,3 +579,52 @@ class TestSyncCompletedRipTasks:
         # Should not raise an error
         response = client.get("/api/tasks")
         assert response.status_code == 200
+
+    def test_sync_translates_daemon_paths_to_webapp_paths(self, client, tasks_dir, db_with_disc_and_tracks, monkeypatch):
+        """Sync translates daemon paths to webapp paths using env vars."""
+        import asyncio
+        import aiosqlite
+
+        # Set up path translation env vars
+        monkeypatch.setenv("DAEMON_RIPPED_DIR", "/Volumes/Media Drive 1/Ripped")
+        monkeypatch.setenv("AMPHIGORY_RIPPED_DIR", "/media/ripped")
+
+        # Create a completed rip task with daemon-style path
+        complete_dir = tasks_dir / "complete"
+        complete_dir.mkdir(exist_ok=True)
+
+        task_data = {
+            "task_id": "20251226T130000.000000-rip",
+            "type": "rip",
+            "status": "success",
+            "source": {
+                "disc_fingerprint": "test_fingerprint_123",
+                "track_number": 2
+            },
+            "result": {
+                "destination": {
+                    "directory": "/Volumes/Media Drive 1/Ripped/Test Movie (2024)/",
+                    "filename": "Test Movie (2024).mkv"
+                }
+            }
+        }
+        with open(complete_dir / "20251226T130000.000000-rip.json", "w") as f:
+            json.dump(task_data, f)
+
+        # Call list_tasks to trigger sync
+        response = client.get("/api/tasks")
+        assert response.status_code == 200
+
+        # Check that the track was updated with translated path
+        async def check_track():
+            async with aiosqlite.connect(db_with_disc_and_tracks) as conn:
+                conn.row_factory = aiosqlite.Row
+                cursor = await conn.execute(
+                    "SELECT ripped_path FROM tracks WHERE track_number = 2"
+                )
+                row = await cursor.fetchone()
+                return row["ripped_path"]
+
+        ripped_path = asyncio.run(check_track())
+        # Should be translated from /Volumes/... to /media/ripped/...
+        assert ripped_path == "/media/ripped/Test Movie (2024)/Test Movie (2024).mkv"
