@@ -708,7 +708,7 @@ class TestFingerprintIntegration:
 
     @pytest.mark.asyncio
     async def test_status_html_shows_known_disc_with_fingerprint(self, client, tasks_dir):
-        """Status HTML shows 'Known disc' when fingerprint matches database."""
+        """Status HTML shows title with fingerprint prefix when fingerprint matches database."""
         from amphigory.api.settings import _daemons, RegisteredDaemon
         from amphigory.database import Database
         from amphigory.websocket import manager
@@ -755,8 +755,9 @@ class TestFingerprintIntegration:
                 assert response.status_code == 200
                 html = response.text
 
-                # Should show known disc info
-                assert "Known disc: The Matrix" in html
+                # Should show title from DB with fingerprint prefix
+                assert "The Matrix" in html
+                assert "fp_matr" in html  # First 7 chars of fingerprint
             finally:
                 del _daemons["test-daemon"]
 
@@ -1126,3 +1127,622 @@ class TestGetDiscMetadata:
         """Returns 404 for unknown fingerprint."""
         response = client.get("/api/disc/metadata/unknown_fp")
         assert response.status_code == 404
+
+
+class TestGetDiscByFingerprint:
+    """Tests for GET /api/disc/by-fingerprint/{fingerprint} endpoint."""
+
+    def test_returns_404_when_disc_not_found(self, client):
+        """Returns 404 when fingerprint not in database."""
+        response = client.get("/api/disc/by-fingerprint/nonexistent123")
+        assert response.status_code == 404
+
+    @pytest.mark.asyncio
+    async def test_returns_disc_with_tracks(self, client, tasks_dir):
+        """Returns disc info and tracks for known fingerprint."""
+        # Create disc with tracks in database
+        from amphigory.database import Database
+        from amphigory.api import disc_repository
+
+        db_path = tasks_dir.parent / "amphigory.db"
+        db = Database(db_path)
+        await db.initialize()
+
+        async with db.connection() as conn:
+            cursor = await conn.execute(
+                """INSERT INTO discs (title, fingerprint, year, imdb_id)
+                   VALUES (?, ?, ?, ?)""",
+                ("Test Movie", "test_fp_endpoint_123", 2020, "tt1234567"),
+            )
+            disc_id = cursor.lastrowid
+            await conn.execute(
+                """INSERT INTO tracks (disc_id, track_number, track_type, status)
+                   VALUES (?, ?, ?, ?)""",
+                (disc_id, 1, "main_feature", "discovered"),
+            )
+            await conn.commit()
+
+        response = client.get("/api/disc/by-fingerprint/test_fp_endpoint_123")
+        assert response.status_code == 200
+
+        data = response.json()
+        assert "disc" in data
+        assert "tracks" in data
+        assert data["disc"]["fingerprint"] == "test_fp_endpoint_123"
+        assert isinstance(data["tracks"], list)
+        assert len(data["tracks"]) == 1
+
+
+class TestVerifyTrackFiles:
+    """Tests for GET /api/tracks/{track_id}/verify-files endpoint."""
+
+    @pytest.mark.asyncio
+    async def test_returns_all_false_for_no_paths(self, client, tasks_dir):
+        """Returns all exists=false when no paths set."""
+        from amphigory.database import Database
+
+        db_path = tasks_dir.parent / "amphigory.db"
+        db = Database(db_path)
+        await db.initialize()
+
+        # Create disc and track with no paths
+        async with db.connection() as conn:
+            cursor = await conn.execute(
+                """INSERT INTO discs (title, fingerprint)
+                   VALUES (?, ?)""",
+                ("Test Movie", "fp_verify_test"),
+            )
+            disc_id = cursor.lastrowid
+            cursor = await conn.execute(
+                """INSERT INTO tracks (disc_id, track_number, status)
+                   VALUES (?, ?, ?)""",
+                (disc_id, 1, "discovered"),
+            )
+            track_id = cursor.lastrowid
+            await conn.commit()
+
+        response = client.get(f"/api/tracks/{track_id}/verify-files")
+        assert response.status_code == 200
+
+        data = response.json()
+        assert data["ripped_exists"] is False
+        assert data["transcoded_exists"] is False
+        assert data["inserted_exists"] is False
+
+    @pytest.mark.asyncio
+    async def test_returns_true_when_file_exists(self, client, tasks_dir, tmp_path):
+        """Returns exists=true when file is present on disk."""
+        from amphigory.database import Database
+
+        db_path = tasks_dir.parent / "amphigory.db"
+        db = Database(db_path)
+        await db.initialize()
+
+        # Create a test file
+        ripped_file = tmp_path / "test.mkv"
+        ripped_file.write_text("test content")
+
+        # Create disc and track with ripped_path
+        async with db.connection() as conn:
+            cursor = await conn.execute(
+                """INSERT INTO discs (title, fingerprint)
+                   VALUES (?, ?)""",
+                ("Test Movie", "fp_verify_exists_test"),
+            )
+            disc_id = cursor.lastrowid
+            cursor = await conn.execute(
+                """INSERT INTO tracks (disc_id, track_number, ripped_path, status)
+                   VALUES (?, ?, ?, ?)""",
+                (disc_id, 1, str(ripped_file), "ripped"),
+            )
+            track_id = cursor.lastrowid
+            await conn.commit()
+
+        response = client.get(f"/api/tracks/{track_id}/verify-files")
+        assert response.status_code == 200
+
+        data = response.json()
+        assert data["ripped_exists"] is True
+        assert data["ripped_path"] == str(ripped_file)
+
+    def test_returns_404_for_unknown_track(self, client):
+        """Returns 404 for non-existent track_id."""
+        response = client.get("/api/tracks/99999/verify-files")
+        assert response.status_code == 404
+
+
+class TestSaveDiscAndTracks:
+    """Tests for POST /api/disc/{disc_id}/save endpoint."""
+
+    @pytest.mark.asyncio
+    async def test_saves_disc_info(self, client, tasks_dir):
+        """Updates disc title, year, imdb_id."""
+        from amphigory.database import Database
+
+        db_path = tasks_dir.parent / "amphigory.db"
+        db = Database(db_path)
+        await db.initialize()
+
+        # Create test disc
+        async with db.connection() as conn:
+            cursor = await conn.execute(
+                """INSERT INTO discs (title, fingerprint)
+                   VALUES (?, ?)""",
+                ("Original Title", "fp_save_test"),
+            )
+            disc_id = cursor.lastrowid
+            await conn.commit()
+
+        response = client.post(f"/api/disc/{disc_id}/save", json={
+            "disc": {
+                "title": "Updated Title",
+                "year": 2021,
+                "imdb_id": "tt9999999"
+            },
+            "tracks": []
+        })
+        assert response.status_code == 200
+
+        # Verify changes persisted
+        get_response = client.get("/api/disc/by-fingerprint/fp_save_test")
+        data = get_response.json()
+        assert data["disc"]["title"] == "Updated Title"
+        assert data["disc"]["year"] == 2021
+        assert data["disc"]["imdb_id"] == "tt9999999"
+
+    @pytest.mark.asyncio
+    async def test_saves_track_info(self, client, tasks_dir):
+        """Updates track names, types, presets."""
+        from amphigory.database import Database
+
+        db_path = tasks_dir.parent / "amphigory.db"
+        db = Database(db_path)
+        await db.initialize()
+
+        # Create test disc and track
+        async with db.connection() as conn:
+            cursor = await conn.execute(
+                """INSERT INTO discs (title, fingerprint)
+                   VALUES (?, ?)""",
+                ("Test Movie", "fp_track_save_test"),
+            )
+            disc_id = cursor.lastrowid
+            cursor = await conn.execute(
+                """INSERT INTO tracks (disc_id, track_number, track_type)
+                   VALUES (?, ?, ?)""",
+                (disc_id, 1, "extra"),
+            )
+            track_id = cursor.lastrowid
+            await conn.commit()
+
+        response = client.post(f"/api/disc/{disc_id}/save", json={
+            "disc": {},
+            "tracks": [
+                {"id": track_id, "track_name": "New Name", "track_type": "featurettes", "preset_name": "HQ 1080p"}
+            ]
+        })
+        assert response.status_code == 200
+
+        # Verify changes persisted
+        get_response = client.get("/api/disc/by-fingerprint/fp_track_save_test")
+        tracks = get_response.json()["tracks"]
+        assert tracks[0]["track_name"] == "New Name"
+        assert tracks[0]["track_type"] == "featurettes"
+        assert tracks[0]["preset_name"] == "HQ 1080p"
+
+    def test_returns_404_for_unknown_disc(self, client):
+        """Returns 404 for non-existent disc_id."""
+        response = client.post("/api/disc/99999/save", json={"disc": {}, "tracks": []})
+        assert response.status_code == 404
+
+
+class TestResetTrack:
+    """Tests for POST /api/tracks/{track_id}/reset endpoint."""
+
+    @pytest.mark.asyncio
+    async def test_clears_paths_in_database(self, client, tasks_dir):
+        """Clears ripped_path, transcoded_path, inserted_path."""
+        from amphigory.database import Database
+
+        db_path = tasks_dir.parent / "amphigory.db"
+        db = Database(db_path)
+        await db.initialize()
+
+        # Create disc and track with paths set
+        async with db.connection() as conn:
+            cursor = await conn.execute(
+                """INSERT INTO discs (title, fingerprint)
+                   VALUES (?, ?)""",
+                ("Test Movie", "fp_reset_test"),
+            )
+            disc_id = cursor.lastrowid
+            cursor = await conn.execute(
+                """INSERT INTO tracks (disc_id, track_number, status,
+                   ripped_path, transcoded_path, inserted_path)
+                   VALUES (?, ?, ?, ?, ?, ?)""",
+                (disc_id, 1, "complete", "/test/ripped.mkv", "/test/transcoded.mp4", "/test/inserted.mp4"),
+            )
+            track_id = cursor.lastrowid
+            await conn.commit()
+
+        response = client.post(f"/api/tracks/{track_id}/reset")
+        assert response.status_code == 200
+
+        # Verify paths cleared
+        async with db.connection() as conn:
+            cursor = await conn.execute(
+                "SELECT ripped_path, transcoded_path, inserted_path, status FROM tracks WHERE id = ?",
+                (track_id,)
+            )
+            row = await cursor.fetchone()
+
+        assert row["ripped_path"] is None
+        assert row["transcoded_path"] is None
+        assert row["inserted_path"] is None
+        assert row["status"] == "discovered"
+
+    @pytest.mark.asyncio
+    async def test_deletes_existing_files(self, client, tasks_dir, tmp_path):
+        """Deletes files from disk when they exist."""
+        from amphigory.database import Database
+
+        db_path = tasks_dir.parent / "amphigory.db"
+        db = Database(db_path)
+        await db.initialize()
+
+        # Create test files
+        ripped = tmp_path / "ripped.mkv"
+        ripped.write_text("ripped content")
+        transcoded = tmp_path / "transcoded.mp4"
+        transcoded.write_text("transcoded content")
+
+        # Create disc and track with paths to real files
+        async with db.connection() as conn:
+            cursor = await conn.execute(
+                """INSERT INTO discs (title, fingerprint)
+                   VALUES (?, ?)""",
+                ("Test Movie", "fp_reset_delete_test"),
+            )
+            disc_id = cursor.lastrowid
+            cursor = await conn.execute(
+                """INSERT INTO tracks (disc_id, track_number, status,
+                   ripped_path, transcoded_path)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (disc_id, 1, "transcoded", str(ripped), str(transcoded)),
+            )
+            track_id = cursor.lastrowid
+            await conn.commit()
+
+        # Verify files exist before reset
+        assert ripped.exists()
+        assert transcoded.exists()
+
+        response = client.post(f"/api/tracks/{track_id}/reset")
+        assert response.status_code == 200
+
+        # Verify files deleted
+        assert not ripped.exists()
+        assert not transcoded.exists()
+
+    def test_returns_404_for_unknown_track(self, client):
+        """Returns 404 for non-existent track_id."""
+        response = client.post("/api/tracks/99999/reset")
+        assert response.status_code == 404
+
+
+class TestDiscStatusHtmlKnownDisc:
+    """Tests for disc status HTML with known discs."""
+
+    @pytest.mark.asyncio
+    async def test_shows_track_count_for_known_disc(self, client, tasks_dir):
+        """Shows track count for known discs from database."""
+        from amphigory.api.settings import _daemons, RegisteredDaemon
+        from amphigory.database import Database
+        from amphigory.websocket import manager
+        from amphigory.api import disc_repository
+        from amphigory.api.disc import clear_current_scan
+        from datetime import datetime
+        from unittest.mock import patch
+
+        # Ensure no cached scan
+        clear_current_scan()
+
+        # Initialize database
+        db_path = tasks_dir.parent / "amphigory.db"
+        db = Database(db_path)
+        await db.initialize()
+
+        # Create disc with fingerprint and tracks in DB using save_disc_scan
+        scan_data = {
+            "disc_name": "KNOWN_MOVIE",
+            "disc_type": "bluray",
+            "tracks": [
+                {"number": 1, "duration": "2:00:00", "size_bytes": 1000000},
+                {"number": 2, "duration": "0:30:00", "size_bytes": 500000},
+                {"number": 3, "duration": "0:05:00", "size_bytes": 100000},
+                {"number": 4, "duration": "0:02:00", "size_bytes": 50000},
+                {"number": 5, "duration": "0:01:00", "size_bytes": 25000},
+            ],
+        }
+        await disc_repository.save_disc_scan("fp_known_html_test", scan_data)
+
+        # Update the title to something recognizable
+        async with db.connection() as conn:
+            await conn.execute(
+                "UPDATE discs SET title = ? WHERE fingerprint = ?",
+                ("Known Test Movie", "fp_known_html_test"),
+            )
+            await conn.commit()
+
+        # Register daemon
+        daemon = RegisteredDaemon(
+            daemon_id="test-daemon",
+            makemkvcon_path="/usr/local/bin/makemkvcon",
+            webapp_basedir="/data",
+            connected_at=datetime.now(),
+            last_seen=datetime.now(),
+        )
+        _daemons["test-daemon"] = daemon
+
+        # Mock the WebSocket request to daemon to return fingerprint
+        async def mock_request_from_daemon(daemon_id, method, params, timeout):
+            return {
+                "state": "disc_inserted",
+                "device": "/dev/disk2",
+                "disc_volume": "KNOWN_MOVIE_DISC",
+                "fingerprint": "fp_known_html_test",
+            }
+
+        with patch.object(manager, 'request_from_daemon', side_effect=mock_request_from_daemon):
+            try:
+                response = client.get("/api/disc/status-html")
+
+                assert response.status_code == 200
+                html = response.text
+
+                # Should show track count from database (5 tracks)
+                assert "5 tracks" in html
+            finally:
+                del _daemons["test-daemon"]
+
+    @pytest.mark.asyncio
+    async def test_shows_review_disc_button_for_known_disc(self, client, tasks_dir):
+        """Shows 'Review Disc' button instead of 'Scan Disc' for known discs."""
+        from amphigory.api.settings import _daemons, RegisteredDaemon
+        from amphigory.database import Database
+        from amphigory.websocket import manager
+        from amphigory.api import disc_repository
+        from amphigory.api.disc import clear_current_scan
+        from datetime import datetime
+        from unittest.mock import patch
+
+        # Ensure no cached scan
+        clear_current_scan()
+
+        # Initialize database
+        db_path = tasks_dir.parent / "amphigory.db"
+        db = Database(db_path)
+        await db.initialize()
+
+        # Create disc with fingerprint and tracks in DB
+        scan_data = {
+            "disc_name": "REVIEW_BUTTON_TEST",
+            "disc_type": "bluray",
+            "tracks": [
+                {"number": 1, "duration": "2:00:00"},
+            ],
+        }
+        await disc_repository.save_disc_scan("fp_review_button_test", scan_data)
+
+        # Update the title
+        async with db.connection() as conn:
+            await conn.execute(
+                "UPDATE discs SET title = ? WHERE fingerprint = ?",
+                ("Review Button Test Movie", "fp_review_button_test"),
+            )
+            await conn.commit()
+
+        # Register daemon
+        daemon = RegisteredDaemon(
+            daemon_id="test-daemon",
+            makemkvcon_path="/usr/local/bin/makemkvcon",
+            webapp_basedir="/data",
+            connected_at=datetime.now(),
+            last_seen=datetime.now(),
+        )
+        _daemons["test-daemon"] = daemon
+
+        # Mock the WebSocket request to daemon
+        async def mock_request_from_daemon(daemon_id, method, params, timeout):
+            return {
+                "state": "disc_inserted",
+                "device": "/dev/disk2",
+                "disc_volume": "TEST_DISC",
+                "fingerprint": "fp_review_button_test",
+            }
+
+        with patch.object(manager, 'request_from_daemon', side_effect=mock_request_from_daemon):
+            try:
+                response = client.get("/api/disc/status-html")
+
+                assert response.status_code == 200
+                html = response.text
+
+                # Should show "Review Disc" button, not "Scan Disc"
+                assert "Review Disc" in html
+                assert "Scan Disc" not in html
+                # Should link to /disc page
+                assert 'href="/disc"' in html
+            finally:
+                del _daemons["test-daemon"]
+
+    @pytest.mark.asyncio
+    async def test_shows_title_with_fingerprint_prefix_for_known_disc(self, client, tasks_dir):
+        """Shows title with fingerprint prefix (first 7 chars) for known discs."""
+        from amphigory.api.settings import _daemons, RegisteredDaemon
+        from amphigory.database import Database
+        from amphigory.websocket import manager
+        from amphigory.api import disc_repository
+        from amphigory.api.disc import clear_current_scan
+        from datetime import datetime
+        from unittest.mock import patch
+
+        # Ensure no cached scan
+        clear_current_scan()
+
+        # Initialize database
+        db_path = tasks_dir.parent / "amphigory.db"
+        db = Database(db_path)
+        await db.initialize()
+
+        # Create disc with fingerprint
+        scan_data = {
+            "disc_name": "TITLE_TEST",
+            "disc_type": "bluray",
+            "tracks": [{"number": 1, "duration": "2:00:00"}],
+        }
+        await disc_repository.save_disc_scan("abc1234xyz567890", scan_data)
+
+        # Update the title
+        async with db.connection() as conn:
+            await conn.execute(
+                "UPDATE discs SET title = ? WHERE fingerprint = ?",
+                ("The Matrix", "abc1234xyz567890"),
+            )
+            await conn.commit()
+
+        # Register daemon
+        daemon = RegisteredDaemon(
+            daemon_id="test-daemon",
+            makemkvcon_path="/usr/local/bin/makemkvcon",
+            webapp_basedir="/data",
+            connected_at=datetime.now(),
+            last_seen=datetime.now(),
+        )
+        _daemons["test-daemon"] = daemon
+
+        # Mock the WebSocket request
+        async def mock_request_from_daemon(daemon_id, method, params, timeout):
+            return {
+                "state": "disc_inserted",
+                "device": "/dev/disk2",
+                "disc_volume": "MATRIX_DISC",
+                "fingerprint": "abc1234xyz567890",
+            }
+
+        with patch.object(manager, 'request_from_daemon', side_effect=mock_request_from_daemon):
+            try:
+                response = client.get("/api/disc/status-html")
+
+                assert response.status_code == 200
+                html = response.text
+
+                # Should show title from DB
+                assert "The Matrix" in html
+                # Should show fingerprint prefix (first 7 chars)
+                assert "abc1234" in html
+            finally:
+                del _daemons["test-daemon"]
+
+    @pytest.mark.asyncio
+    async def test_shows_volume_name_with_fingerprint_prefix_for_unknown_disc(self, client, tasks_dir):
+        """Shows volume name with fingerprint prefix for unknown discs."""
+        from amphigory.api.settings import _daemons, RegisteredDaemon
+        from amphigory.database import Database
+        from amphigory.websocket import manager
+        from amphigory.api.disc import clear_current_scan
+        from datetime import datetime
+        from unittest.mock import patch
+
+        # Ensure no cached scan
+        clear_current_scan()
+
+        # Initialize database (but don't insert any disc)
+        db_path = tasks_dir.parent / "amphigory.db"
+        db = Database(db_path)
+        await db.initialize()
+
+        # Register daemon
+        daemon = RegisteredDaemon(
+            daemon_id="test-daemon",
+            makemkvcon_path="/usr/local/bin/makemkvcon",
+            webapp_basedir="/data",
+            connected_at=datetime.now(),
+            last_seen=datetime.now(),
+        )
+        _daemons["test-daemon"] = daemon
+
+        # Mock the WebSocket request with unknown fingerprint
+        async def mock_request_from_daemon(daemon_id, method, params, timeout):
+            return {
+                "state": "disc_inserted",
+                "device": "/dev/disk2",
+                "disc_volume": "UNKNOWN_DISC_VOL",
+                "fingerprint": "xyz9876unknown",
+            }
+
+        with patch.object(manager, 'request_from_daemon', side_effect=mock_request_from_daemon):
+            try:
+                response = client.get("/api/disc/status-html")
+
+                assert response.status_code == 200
+                html = response.text
+
+                # Should show volume name for unknown disc
+                assert "UNKNOWN_DISC_VOL" in html
+                # Should show fingerprint prefix (first 7 chars)
+                assert "xyz9876" in html
+                # Should show "Scan Disc" button
+                assert "Scan Disc" in html
+            finally:
+                del _daemons["test-daemon"]
+
+    @pytest.mark.asyncio
+    async def test_scan_disc_button_has_hx_post_for_unknown_disc(self, client, tasks_dir):
+        """Unknown disc shows Scan Disc button with hx-post attribute."""
+        from amphigory.api.settings import _daemons, RegisteredDaemon
+        from amphigory.database import Database
+        from amphigory.websocket import manager
+        from amphigory.api.disc import clear_current_scan
+        from datetime import datetime
+        from unittest.mock import patch
+
+        # Ensure no cached scan
+        clear_current_scan()
+
+        # Initialize database (but don't insert any disc)
+        db_path = tasks_dir.parent / "amphigory.db"
+        db = Database(db_path)
+        await db.initialize()
+
+        # Register daemon
+        daemon = RegisteredDaemon(
+            daemon_id="test-daemon",
+            makemkvcon_path="/usr/local/bin/makemkvcon",
+            webapp_basedir="/data",
+            connected_at=datetime.now(),
+            last_seen=datetime.now(),
+        )
+        _daemons["test-daemon"] = daemon
+
+        # Mock the WebSocket request with unknown fingerprint
+        async def mock_request_from_daemon(daemon_id, method, params, timeout):
+            return {
+                "state": "disc_inserted",
+                "device": "/dev/disk2",
+                "disc_volume": "SCANME_DISC",
+                "fingerprint": "scanme12345678",
+            }
+
+        with patch.object(manager, 'request_from_daemon', side_effect=mock_request_from_daemon):
+            try:
+                response = client.get("/api/disc/status-html")
+
+                assert response.status_code == 200
+                html = response.text
+
+                # Should show Scan Disc button with hx-post for HTMX
+                assert "Scan Disc" in html
+                assert 'hx-post="/api/disc/scan"' in html
+            finally:
+                del _daemons["test-daemon"]

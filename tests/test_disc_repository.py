@@ -641,3 +641,52 @@ class TestGetTracksForDisc:
         assert result[0]["track_number"] == 1
         assert result[1]["track_number"] == 3
         assert result[2]["track_number"] == 5
+
+
+class TestGetDiscWithTracks:
+    """Tests for get_disc_with_tracks function."""
+
+    @pytest.mark.asyncio
+    async def test_returns_none_when_disc_not_found(self, db, db_path):
+        """Returns None when no disc matches fingerprint."""
+        result = await disc_repository.get_disc_with_tracks("nonexistent_fp")
+        assert result is None
+
+    @pytest.mark.asyncio
+    async def test_returns_disc_with_tracks(self, db, db_path):
+        """Returns disc with its tracks when fingerprint matches."""
+        # Insert test disc
+        async with db.connection() as conn:
+            cursor = await conn.execute(
+                """INSERT INTO discs (title, fingerprint, year, imdb_id)
+                   VALUES (?, ?, ?, ?)""",
+                ("Test Movie", "fp_with_tracks", 2020, "tt1234567"),
+            )
+            disc_id = cursor.lastrowid
+
+            # Insert test tracks
+            await conn.execute(
+                """INSERT INTO tracks (disc_id, track_number, track_type, track_name,
+                   duration_seconds, size_bytes, resolution, status)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (disc_id, 1, "main_feature", "Test Movie (2020)", 7200, 25000000000, "1920x1080", "discovered"),
+            )
+            await conn.execute(
+                """INSERT INTO tracks (disc_id, track_number, track_type, track_name,
+                   duration_seconds, size_bytes, resolution, ripped_path, status)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (disc_id, 2, "featurettes", "Making Of", 2700, 5000000000, "1920x1080",
+                 "/media/ripped/Test Movie/Making Of.mkv", "ripped"),
+            )
+            await conn.commit()
+
+        result = await disc_repository.get_disc_with_tracks("fp_with_tracks")
+
+        assert result is not None
+        assert result["disc"]["title"] == "Test Movie"
+        assert result["disc"]["fingerprint"] == "fp_with_tracks"
+        assert len(result["tracks"]) == 2
+        assert result["tracks"][0]["track_number"] == 1
+        assert result["tracks"][0]["status"] == "discovered"
+        assert result["tracks"][1]["track_number"] == 2
+        assert result["tracks"][1]["ripped_path"] == "/media/ripped/Test Movie/Making Of.mkv"

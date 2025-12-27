@@ -956,3 +956,59 @@ body {
 .detail-error {
     color: var(--error);
 }
+
+/* Track processing status icons */
+.track-status {
+    display: inline-flex;
+    gap: 0.25rem;
+    font-size: 1rem;
+}
+
+.track-status .status-icon {
+    opacity: 0.3;
+    transition: opacity 0.2s, color 0.2s;
+}
+
+.track-status .status-icon.done {
+    opacity: 1;
+    color: var(--success);
+}
+
+.track-status .status-icon.missing {
+    opacity: 1;
+    color: var(--error);
+    text-decoration: line-through;
+}
+
+.track-status .status-icon.pending {
+    opacity: 0.3;
+}
+
+/* Reset link */
+.reset-link {
+    color: var(--text-muted);
+    cursor: pointer;
+    font-size: 0.875rem;
+}
+
+.reset-link:hover {
+    color: var(--error);
+}
+
+/* Track name input */
+.track-name-input {
+    width: 100%;
+    padding: 0.25rem 0.5rem;
+    font-size: 0.85rem;
+    font-family: inherit;
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    background: var(--card-bg);
+    color: var(--text);
+}
+
+.track-name-input:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.1);
+}

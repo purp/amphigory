@@ -29,7 +29,7 @@ from fastapi.responses import HTMLResponse
 
 from amphigory.database import Database
 from amphigory.config import get_config
-from amphigory.api import disc_router, jobs_router, settings_router, tasks_router, drives_router, library_router, cleanup_router
+from amphigory.api import disc_router, tracks_router, jobs_router, settings_router, tasks_router, drives_router, library_router, cleanup_router
 from amphigory.api.presets import router as presets_router
 from amphigory.websocket import manager
 
@@ -80,6 +80,7 @@ templates = Jinja2Templates(directory=TEMPLATES_DIR)
 
 # Include API routers
 app.include_router(disc_router)
+app.include_router(tracks_router)
 app.include_router(jobs_router)
 app.include_router(settings_router)
 app.include_router(tasks_router)

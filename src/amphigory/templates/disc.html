@@ -72,6 +72,7 @@
                         <th class="col-name">Track Name</th>
                         <th class="col-audio">Audio</th>
                         <th class="col-subs">Subs</th>
+                        <th class="col-status">Status</th>
                     </tr>
                 </thead>
                 <tbody id="tracks-body">
@@ -305,14 +306,16 @@ async function checkDiscStatus() {
                 const lookupResponse = await fetch('/api/disc/lookup-fingerprint');
                 if (lookupResponse.ok) {
                     const discInfo = await lookupResponse.json();
-                    if (discInfo.scan_data) {
-                        // Show option to use cached scan or rescan
-                        statusText.textContent = `Known disc: ${discInfo.title}`;
+                    // Check if disc has an ID (exists in database)
+                    if (discInfo.id) {
+                        // Known disc - auto-load from database
+                        const fingerprint = discInfo.fingerprint;
+                        statusText.textContent = `Known disc: ${discInfo.title || 'Unknown'}`;
                         const scannedDate = discInfo.scanned_at ? new Date(discInfo.scanned_at).toLocaleDateString() : 'previously';
                         scanSection.innerHTML = `
                             <p class="text-muted">Previously scanned on ${scannedDate}</p>
-                            <button class="btn btn-primary" onclick="loadCachedScan()">
-                                Load Previous Scan
+                            <button class="btn btn-primary" onclick="loadFromDatabase('${fingerprint}')">
+                                Reload from DB
                             </button>
                             <button class="btn btn-secondary" onclick="startScan()" style="margin-left: 0.5rem;">
                                 Rescan Disc
@@ -320,6 +323,8 @@ async function checkDiscStatus() {
                         `;
                         // Store disc info for later use
                         window.knownDiscInfo = discInfo;
+                        // Auto-load from database
+                        loadFromDatabase(fingerprint);
                         return;
                     }
                 }
@@ -353,7 +358,7 @@ async function checkDiscStatus() {
     }
 }
 
-// Load cached scan data from database
+// Load cached scan data from database (legacy - kept for compatibility)
 function loadCachedScan() {
     if (!window.knownDiscInfo || !window.knownDiscInfo.scan_data) {
         console.error('No cached scan data available');
@@ -362,6 +367,258 @@ function loadCachedScan() {
 
     scanResult = window.knownDiscInfo.scan_data;
     displayScanResult(scanResult);
+}
+
+// Load disc and tracks from database by fingerprint
+async function loadFromDatabase(fingerprint) {
+    try {
+        const response = await fetch(`/api/disc/by-fingerprint/${fingerprint}`);
+        if (!response.ok) {
+            console.error('Failed to load disc from database:', response.status);
+            return;
+        }
+
+        const data = await response.json();
+        const disc = data.disc;
+        const tracks = data.tracks;
+
+        // Store disc ID for later saving
+        window.currentDiscId = disc.id;
+
+        // Populate disc info fields
+        if (disc.title) {
+            document.getElementById('disc-title').value = disc.title;
+        }
+        if (disc.year) {
+            document.getElementById('disc-year').value = disc.year;
+        }
+        if (disc.tmdb_id) {
+            window.selectedTMDBId = disc.tmdb_id;
+        }
+        if (disc.imdb_id) {
+            window.selectedIMDBId = disc.imdb_id;
+        }
+
+        // Show metadata links if we have IDs
+        if (disc.tmdb_id || disc.imdb_id) {
+            showMetadataLinks(disc.title, disc.tmdb_id, disc.imdb_id);
+        }
+
+        // Show disc info section
+        document.getElementById('disc-info-section').style.display = 'block';
+
+        // Show tracks section
+        document.getElementById('tracks-section').style.display = 'block';
+
+        // Display tracks from database with status verification
+        await displayTracksFromDatabase(tracks);
+
+        // Enable save button since we have disc data
+        enableSaveButton();
+
+    } catch (error) {
+        console.error('Error loading disc from database:', error);
+    }
+}
+
+// Display tracks loaded from database with file verification
+async function displayTracksFromDatabase(tracks) {
+    const tbody = document.getElementById('tracks-body');
+    tbody.innerHTML = '';
+
+    // Verify file existence for each track in parallel
+    const verificationPromises = tracks.map(async (track) => {
+        try {
+            const response = await fetch(`/api/tracks/${track.id}/verify-files`);
+            if (response.ok) {
+                return { track, verification: await response.json() };
+            }
+        } catch (error) {
+            console.error(`Error verifying files for track ${track.id}:`, error);
+        }
+        // Return default verification if API call fails
+        return {
+            track,
+            verification: {
+                ripped_exists: false,
+                transcoded_exists: false,
+                inserted_exists: false,
+                ripped_path: track.ripped_path,
+                transcoded_path: track.transcoded_path,
+                inserted_path: track.inserted_path
+            }
+        };
+    });
+
+    const results = await Promise.all(verificationPromises);
+
+    // Build track rows
+    for (const { track, verification } of results) {
+        // Determine processing status
+        const rippedExists = verification.ripped_exists;
+        const transcodedExists = verification.transcoded_exists;
+        const insertedExists = verification.inserted_exists;
+
+        const isFullyProcessed = insertedExists;
+        const isPartiallyProcessed = (rippedExists || transcodedExists) && !insertedExists;
+        const isUnprocessed = !rippedExists && !transcodedExists && !insertedExists;
+
+        const shouldSelect = isUnprocessed || isPartiallyProcessed;
+        const showReset = isPartiallyProcessed;
+
+        const row = createTrackRowFromDb(track, verification, shouldSelect, showReset);
+        tbody.appendChild(row);
+    }
+
+    // After rendering tracks, populate preset dropdowns
+    document.querySelectorAll('.preset-select').forEach((select) => {
+        const trackIndex = parseInt(select.dataset.trackIndex);
+        const track = tracks[trackIndex];
+        if (track) {
+            populatePresetDropdown(select, track.resolution);
+            // If track has a saved preset, select it
+            if (track.preset_name) {
+                select.value = track.preset_name;
+            }
+        }
+    });
+
+    updateSelectedCount();
+}
+
+// Create a track row from database track data
+function createTrackRowFromDb(track, verification, shouldSelect, showReset) {
+    const row = document.createElement('tr');
+    row.className = 'track-row' + (track.track_type === 'main_feature' ? ' main-feature' : '');
+    row.draggable = true;
+    row.dataset.trackId = track.id;
+
+    // Drag handlers
+    row.ondragstart = handleDragStart;
+    row.ondragover = handleDragOver;
+    row.ondrop = handleDrop;
+    row.ondragend = handleDragEnd;
+
+    // Build status icons
+    const rippedStatus = getStatusClass(track.ripped_path, verification.ripped_exists);
+    const transcodedStatus = getStatusClass(track.transcoded_path, verification.transcoded_exists);
+    const insertedStatus = getStatusClass(track.inserted_path, verification.inserted_exists);
+
+    // Reset link HTML
+    const resetLinkHtml = showReset
+        ? `<a href="#" class="reset-link" onclick="resetTrack(${track.id}); return false;" title="Reset track progress">&#8634;</a>`
+        : '';
+
+    row.innerHTML = `
+        <td class="col-drag"><span class="drag-handle">&#8942;&#8942;</span></td>
+        <td class="col-select">
+            <input type="checkbox" name="tracks" value="${track.track_number}"
+                   ${shouldSelect ? 'checked' : ''}
+                   onchange="updateSelectedCount()" data-classification="${escapeHtml(track.track_type || 'unknown')}"
+                   data-track-id="${track.id}">
+        </td>
+        <td class="col-track">${track.track_number}</td>
+        <td class="col-duration">${formatDuration(track.duration_seconds)}</td>
+        <td class="col-size">${formatSize(track.size_bytes)}</td>
+        <td class="col-resolution">${escapeHtml(track.resolution || '-')}</td>
+        <td class="col-preset">
+            <select class="preset-select" data-track-index="${track.track_number - 1}" data-track-id="${track.id}">
+                <!-- Options populated by displayTracksFromDatabase -->
+            </select>
+        </td>
+        <td class="col-type">
+            <select class="track-type-select type-${track.track_type || 'unknown'}"
+                    onchange="updateTrackClassificationFromDb(this, ${track.id})"
+                    data-track-id="${track.id}">
+                ${getTrackTypeOptions(track.track_type || 'unknown')}
+            </select>
+        </td>
+        <td class="col-name">
+            <input type="text" name="track_name_${track.track_number}"
+                   class="track-name-input"
+                   value="${escapeHtml(track.track_name || '')}"
+                   data-track-id="${track.id}">
+        </td>
+        <td class="col-audio">${track.audio_tracks || 0}</td>
+        <td class="col-subs">${track.subtitle_tracks || 0}</td>
+        <td class="track-status">
+            <span class="status-icon ${rippedStatus}" title="Ripped">&#128191;</span>
+            <span class="status-icon ${transcodedStatus}" title="Transcoded">&#127916;</span>
+            <span class="status-icon ${insertedStatus}" title="Inserted">&#128250;</span>
+            ${resetLinkHtml}
+        </td>
+    `;
+
+    return row;
+}
+
+// Get CSS class for status icon based on path and file existence
+function getStatusClass(path, exists) {
+    if (!path) {
+        return 'pending';  // Path is null - not done yet
+    }
+    if (exists) {
+        return 'done';     // Path is set and file exists
+    }
+    return 'missing';      // Path is set but file doesn't exist (data loss)
+}
+
+// Update track classification for database-loaded tracks
+function updateTrackClassificationFromDb(selectElement, trackId) {
+    const newClassification = selectElement.value;
+
+    // Update visual styling on the row
+    const row = selectElement.closest('tr');
+    if (!row) {
+        console.error('Could not find parent row for track select');
+        return;
+    }
+
+    row.classList.remove('main-feature');
+    if (newClassification === 'main_feature') {
+        row.classList.add('main-feature');
+    }
+
+    // Update select element class
+    selectElement.className = `track-type-select type-${newClassification}`;
+
+    // Update checkbox data attribute
+    const checkbox = row.querySelector('input[name="tracks"]');
+    if (checkbox) {
+        checkbox.dataset.classification = newClassification;
+    }
+
+    // TODO: Could optionally save to database here
+}
+
+// Reset a track's progress (delete files and clear paths)
+async function resetTrack(trackId) {
+    if (!confirm('Reset this track? This will delete any ripped/transcoded files and clear progress.')) {
+        return;
+    }
+
+    try {
+        const response = await fetch(`/api/tracks/${trackId}/reset`, {
+            method: 'POST'
+        });
+
+        if (response.ok) {
+            // Reload from database to refresh display
+            const fingerprint = window.knownDiscInfo?.fingerprint;
+            if (fingerprint) {
+                await loadFromDatabase(fingerprint);
+            } else {
+                // Fallback: just refresh the page
+                window.location.reload();
+            }
+        } else {
+            const error = await response.json();
+            alert('Failed to reset track: ' + (error.detail || 'Unknown error'));
+        }
+    } catch (error) {
+        console.error('Error resetting track:', error);
+        alert('Failed to reset track: ' + error.message);
+    }
 }
 
 // Start a scan
@@ -554,6 +811,11 @@ async function displayScanResult(result) {
             </td>
             <td class="col-audio">${track.audio_tracks || track.audio_streams?.length || 0}</td>
             <td class="col-subs">${track.subtitle_tracks || track.subtitle_streams?.length || 0}</td>
+            <td class="track-status">
+                <span class="status-icon pending" title="Ripped">&#128191;</span>
+                <span class="status-icon pending" title="Transcoded">&#127916;</span>
+                <span class="status-icon pending" title="Inserted">&#128250;</span>
+            </td>
         </tr>
     `).join('');
 
@@ -567,6 +829,17 @@ function formatSize(bytes) {
     if (!bytes) return '-';
     const gb = bytes / (1024 * 1024 * 1024);
     return gb.toFixed(1) + ' GB';
+}
+
+function formatDuration(seconds) {
+    if (!seconds) return '-';
+    const hours = Math.floor(seconds / 3600);
+    const minutes = Math.floor((seconds % 3600) / 60);
+    const secs = Math.floor(seconds % 60);
+    if (hours > 0) {
+        return `${hours}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`;
+    }
+    return `${minutes}:${String(secs).padStart(2, '0')}`;
 }
 
 function formatClassification(classification) {
@@ -713,7 +986,40 @@ function updateSelectedCount() {
 async function submitRipTasks(event) {
     event.preventDefault();
 
-    // Save disc metadata first (if we have TMDB/IMDB data)
+    // Task 11: Save all page data to database first
+    if (window.currentDiscId) {
+        const discData = {
+            title: document.getElementById('disc-title').value,
+            year: parseInt(document.getElementById('disc-year').value) || null,
+            imdb_id: window.selectedIMDBId || null,
+        };
+
+        const tracksData = [];
+        document.querySelectorAll('.track-row').forEach(row => {
+            const trackId = row.dataset.trackId;
+            if (trackId) {
+                tracksData.push({
+                    id: parseInt(trackId),
+                    track_name: row.querySelector('.track-name-input')?.value,
+                    track_type: row.querySelector('.track-type-select')?.value,
+                    preset_name: row.querySelector('.preset-select')?.value,
+                });
+            }
+        });
+
+        try {
+            await fetch(`/api/disc/${window.currentDiscId}/save`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ disc: discData, tracks: tracksData }),
+            });
+            console.log('Saved disc and track data to database');
+        } catch (error) {
+            console.error('Error saving to database:', error);
+        }
+    }
+
+    // Save disc metadata first (if we have TMDB/IMDB data) - legacy path for fingerprint-based saves
     const fingerprint = scanResult?.fingerprint;
     const title = document.getElementById('disc-title').value.trim();
     const year = document.getElementById('disc-year').value.trim();
@@ -758,42 +1064,92 @@ async function submitRipTasks(event) {
     ripButton.textContent = 'Creating tasks...';
 
     try {
+        let tasksCreated = 0;
+        let tasksSkipped = 0;
+
+        // Task 12: For each selected track, determine what processing is needed
         for (const trackNumber of selectedTracks) {
-            const track = scanResult.tracks.find(t => (t.number || scanResult.tracks.indexOf(t)) === trackNumber);
+            const row = document.querySelector(`tr.track-row input[value="${trackNumber}"]`)?.closest('tr');
+            if (!row) continue;
 
-            // Get track name from input field
-            const trackNameInput = document.querySelector(`input[name="track_name_${trackNumber}"]`);
-            const trackName = trackNameInput?.value || getDefaultTrackName(track);
+            const trackId = row.dataset.trackId;
+            const track = scanResult?.tracks?.find(t => (t.number || scanResult.tracks.indexOf(t)) === trackNumber);
 
-            // Get classification (convert extra/trailer/menu to proper type)
-            let trackType = track.classification || 'other';
-            // Map generic 'extra' to 'other' for Plex naming
-            if (trackType === 'extra') {
-                trackType = 'other';
+            // Check what processing is needed
+            let needsRip = true;
+            let needsTranscode = true;
+            let needsInsert = true;
+
+            if (trackId) {
+                try {
+                    const verifyResponse = await fetch(`/api/tracks/${trackId}/verify-files`);
+                    if (verifyResponse.ok) {
+                        const v = await verifyResponse.json();
+
+                        // Work backwards from end state
+                        if (v.inserted_exists) {
+                            // Fully done - skip everything
+                            needsRip = false;
+                            needsTranscode = false;
+                            needsInsert = false;
+                            console.log(`Track ${trackNumber} already fully processed (inserted), skipping`);
+                        } else if (v.transcoded_exists) {
+                            // Just needs insert
+                            needsRip = false;
+                            needsTranscode = false;
+                            console.log(`Track ${trackNumber} already transcoded, skipping rip and transcode`);
+                        } else if (v.ripped_exists) {
+                            // Needs transcode and insert
+                            needsRip = false;
+                            console.log(`Track ${trackNumber} already ripped, skipping rip task`);
+                        }
+                    }
+                } catch (e) {
+                    console.error('Error checking track status:', e);
+                }
             }
 
-            // Generate Plex-compatible filename
-            // For now, assume language is 'en' - in future this could be configurable
-            const outputFilename = generateTrackFilename(
-                trackType,
-                discTitle,
-                parseInt(discYear),
-                trackName,
-                'en'
-            );
+            // Only create rip task if needed
+            if (needsRip) {
+                // Get track name from input field
+                const trackNameInput = document.querySelector(`input[name="track_name_${trackNumber}"]`);
+                const trackName = trackNameInput?.value || getDefaultTrackName(track);
 
-            await fetch('/api/tasks/rip', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    track_number: trackNumber,
-                    output_filename: outputFilename,
-                    output_directory: outputDir,
-                    disc_title: discTitle,
-                    disc_year: parseInt(discYear),
-                }),
-            });
+                // Get classification (convert extra/trailer/menu to proper type)
+                let trackType = track?.classification || 'other';
+                // Map generic 'extra' to 'other' for Plex naming
+                if (trackType === 'extra') {
+                    trackType = 'other';
+                }
+
+                // Generate Plex-compatible filename
+                // For now, assume language is 'en' - in future this could be configurable
+                const outputFilename = generateTrackFilename(
+                    trackType,
+                    discTitle,
+                    parseInt(discYear),
+                    trackName,
+                    'en'
+                );
+
+                await fetch('/api/tasks/rip', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        track_number: trackNumber,
+                        output_filename: outputFilename,
+                        output_directory: outputDir,
+                        disc_title: discTitle,
+                        disc_year: parseInt(discYear),
+                    }),
+                });
+                tasksCreated++;
+            } else {
+                tasksSkipped++;
+            }
         }
+
+        console.log(`Processing complete: ${tasksCreated} rip tasks created, ${tasksSkipped} tracks skipped (already processed)`);
 
         // Redirect to queue page
         window.location.href = '/queue';

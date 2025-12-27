@@ -21,8 +21,10 @@ from amphigory.api.settings import _daemons
 from amphigory.api import disc_repository
 from amphigory.websocket import manager
 from amphigory.tmdb import search_movies, get_external_ids
+import aiosqlite
 
 router = APIRouter(prefix="/api/disc", tags=["disc"])
+tracks_router = APIRouter(prefix="/api/tracks", tags=["tracks"])
 
 
 # Current scan result for the inserted disc (cleared on eject)
@@ -295,7 +297,12 @@ async def lookup_fingerprint(fingerprint: Optional[str] = None):
 
 @router.get("/status-html", response_class=HTMLResponse)
 async def get_disc_status_html(request: Request):
-    """Return disc status as HTML fragment for HTMX."""
+    """Return disc status as HTML fragment for HTMX.
+
+    For known discs (fingerprint in DB): Show title from DB, track count, "Review Disc" button
+    For unknown discs: Show volume name, "Scan Disc" button with hx-post
+    Always show fingerprint prefix (first 7 chars) when available
+    """
     # Query each daemon for disc status
     # Copy keys to avoid RuntimeError if _daemons changes during iteration
     for daemon_id in list(_daemons.keys()):
@@ -310,36 +317,49 @@ async def get_disc_status_html(request: Request):
 
                 # Check if disc has a fingerprint and if it's known in the database
                 fingerprint = drive_data.get("fingerprint")
+                fp_short = fingerprint[:7] if fingerprint else ""
                 known_disc_info = None
+                track_count = 0
+
                 if fingerprint:
                     known_disc_info = await disc_repository.get_disc_by_fingerprint(fingerprint)
-
-                if scan:
-                    track_count = len(scan.get("tracks", []))
-                    known_disc_html = ""
                     if known_disc_info:
-                        known_disc_html = f'<p class="status-detail">Known disc: {known_disc_info["title"]}</p>'
+                        track_count = await disc_repository.get_track_count_by_fingerprint(fingerprint)
+
+                if known_disc_info:
+                    # Known disc: Show title from DB, track count, "Review Disc" button
+                    title = known_disc_info["title"]
+                    disc_label = f"{title} ({fp_short})" if fp_short else title
 
                     return f'''
                 <div class="disc-detected">
-                    <p class="status-message status-success">Disc detected: {disc_volume}</p>
+                    <p class="status-message status-success">Disc detected: {disc_label}</p>
                     <p class="status-detail">{daemon_id} {disc_device}</p>
-                    {known_disc_html}
-                    <p class="status-detail">{track_count} tracks scanned</p>
+                    <p class="status-detail">{track_count} tracks</p>
+                    <a href="/disc" class="btn btn-primary">Review Disc</a>
+                </div>
+                '''
+                elif scan:
+                    # Unknown disc but has cached scan: Show scan info with review button
+                    scan_track_count = len(scan.get("tracks", []))
+                    disc_label = f"{disc_volume} ({fp_short})" if fp_short else disc_volume
+
+                    return f'''
+                <div class="disc-detected">
+                    <p class="status-message status-success">Disc detected: {disc_label}</p>
+                    <p class="status-detail">{daemon_id} {disc_device}</p>
+                    <p class="status-detail">{scan_track_count} tracks scanned</p>
                     <a href="/disc" class="btn btn-primary">Review Tracks</a>
                 </div>
                 '''
                 else:
-                    # No scan yet - show scan button
-                    known_disc_html = ""
-                    if known_disc_info:
-                        known_disc_html = f'<p class="status-detail">Known disc: {known_disc_info["title"]}</p>'
+                    # Unknown disc, no scan: Show volume name and Scan button
+                    disc_label = f"{disc_volume} ({fp_short})" if fp_short else disc_volume
 
                     return f'''
                 <div class="disc-detected">
-                    <p class="status-message status-success">Disc detected: {disc_volume}</p>
+                    <p class="status-message status-success">Disc detected: {disc_label}</p>
                     <p class="status-detail">{daemon_id} {disc_device}</p>
-                    {known_disc_html}
                     <button hx-post="/api/disc/scan" hx-target="#disc-info" class="btn btn-primary">
                         Scan Disc
                     </button>
@@ -430,3 +450,172 @@ async def get_tmdb_external_ids(tmdb_id: int):
             detail="Could not fetch external IDs from TMDB"
         )
     return external_ids
+
+
+@router.get("/by-fingerprint/{fingerprint}")
+async def get_disc_by_fingerprint_endpoint(fingerprint: str):
+    """Get disc and tracks by fingerprint.
+
+    Returns:
+        Dict with "disc" and "tracks" keys.
+    """
+    result = await disc_repository.get_disc_with_tracks(fingerprint)
+    if not result:
+        raise HTTPException(status_code=404, detail="Disc not found")
+
+    # Parse scan_data JSON if present
+    if result["disc"].get("scan_data"):
+        result["disc"]["scan_data"] = json.loads(result["disc"]["scan_data"])
+
+    # Parse audio_tracks and subtitle_tracks JSON for each track
+    for track in result["tracks"]:
+        if track.get("audio_tracks"):
+            track["audio_tracks"] = json.loads(track["audio_tracks"])
+        if track.get("subtitle_tracks"):
+            track["subtitle_tracks"] = json.loads(track["subtitle_tracks"])
+
+    return result
+
+
+class SaveDiscRequest(BaseModel):
+    """Request body for saving disc and track edits."""
+    disc: dict = {}
+    tracks: list[dict] = []
+
+
+@router.post("/{disc_id}/save")
+async def save_disc_and_tracks(disc_id: int, request: SaveDiscRequest):
+    """Save disc and track edits to database.
+
+    Updates disc info (title, year, imdb_id) and track info
+    (track_name, track_type, preset_name) without overwriting paths.
+    """
+    async with aiosqlite.connect(disc_repository.get_db_path()) as db:
+        # Check disc exists
+        cursor = await db.execute("SELECT id FROM discs WHERE id = ?", (disc_id,))
+        if not await cursor.fetchone():
+            raise HTTPException(status_code=404, detail="Disc not found")
+
+        # Update disc fields if provided
+        disc_updates = []
+        disc_values = []
+        for field in ["title", "year", "imdb_id"]:
+            if field in request.disc and request.disc[field] is not None:
+                disc_updates.append(f"{field} = ?")
+                disc_values.append(request.disc[field])
+
+        if disc_updates:
+            disc_values.append(disc_id)
+            await db.execute(
+                f"UPDATE discs SET {', '.join(disc_updates)} WHERE id = ?",
+                disc_values
+            )
+
+        # Update tracks
+        for track_data in request.tracks:
+            track_id = track_data.get("id")
+            if not track_id:
+                continue
+
+            track_updates = []
+            track_values = []
+            for field in ["track_name", "track_type", "preset_name"]:
+                if field in track_data and track_data[field] is not None:
+                    track_updates.append(f"{field} = ?")
+                    track_values.append(track_data[field])
+
+            if track_updates:
+                track_values.append(track_id)
+                await db.execute(
+                    f"UPDATE tracks SET {', '.join(track_updates)} WHERE id = ?",
+                    track_values
+                )
+
+        await db.commit()
+
+    return {"status": "saved"}
+
+
+class VerifyFilesResponse(BaseModel):
+    """Response for file verification."""
+    ripped_exists: bool
+    ripped_path: Optional[str] = None
+    transcoded_exists: bool
+    transcoded_path: Optional[str] = None
+    inserted_exists: bool
+    inserted_path: Optional[str] = None
+
+
+@tracks_router.get("/{track_id}/verify-files", response_model=VerifyFilesResponse)
+async def verify_track_files(track_id: int) -> VerifyFilesResponse:
+    """Check if a track's output files exist on disk."""
+    async with aiosqlite.connect(disc_repository.get_db_path()) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT ripped_path, transcoded_path, inserted_path FROM tracks WHERE id = ?",
+            (track_id,)
+        )
+        row = await cursor.fetchone()
+
+        if not row:
+            raise HTTPException(status_code=404, detail="Track not found")
+
+        track = dict(row)
+
+        ripped_path = track.get("ripped_path")
+        transcoded_path = track.get("transcoded_path")
+        inserted_path = track.get("inserted_path")
+
+        return VerifyFilesResponse(
+            ripped_exists=bool(ripped_path and Path(ripped_path).exists()),
+            ripped_path=ripped_path,
+            transcoded_exists=bool(transcoded_path and Path(transcoded_path).exists()),
+            transcoded_path=transcoded_path,
+            inserted_exists=bool(inserted_path and Path(inserted_path).exists()),
+            inserted_path=inserted_path,
+        )
+
+
+@tracks_router.post("/{track_id}/reset")
+async def reset_track(track_id: int):
+    """Reset a track for reprocessing.
+
+    Deletes any existing files and clears paths in database.
+    """
+    async with aiosqlite.connect(disc_repository.get_db_path()) as db:
+        db.row_factory = aiosqlite.Row
+
+        # Get current paths
+        cursor = await db.execute(
+            "SELECT ripped_path, transcoded_path, inserted_path FROM tracks WHERE id = ?",
+            (track_id,)
+        )
+        row = await cursor.fetchone()
+
+        if not row:
+            raise HTTPException(status_code=404, detail="Track not found")
+
+        track = dict(row)
+
+        # Delete files if they exist
+        for path_key in ["ripped_path", "transcoded_path", "inserted_path"]:
+            path = track.get(path_key)
+            if path:
+                try:
+                    Path(path).unlink(missing_ok=True)
+                except OSError:
+                    pass  # Ignore errors (e.g., permission denied)
+
+        # Clear paths and reset status
+        await db.execute(
+            """UPDATE tracks
+               SET ripped_path = NULL,
+                   transcoded_path = NULL,
+                   inserted_path = NULL,
+                   status = 'discovered'
+               WHERE id = ?""",
+            (track_id,)
+        )
+        await db.commit()
+
+    return {"status": "reset"}

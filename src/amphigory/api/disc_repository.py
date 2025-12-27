@@ -293,3 +293,40 @@ async def get_tracks_for_disc(disc_id: int) -> list[dict]:
         )
         rows = await cursor.fetchall()
         return [dict(row) for row in rows]
+
+
+async def get_disc_with_tracks(fingerprint: str) -> Optional[dict]:
+    """
+    Get a disc and all its tracks by fingerprint.
+
+    Args:
+        fingerprint: SHA256 hex string fingerprint of the disc
+
+    Returns:
+        Dict with "disc" (disc info) and "tracks" (list of track dicts),
+        or None if disc not found.
+    """
+    async with aiosqlite.connect(get_db_path()) as db:
+        db.row_factory = aiosqlite.Row
+
+        # Get disc
+        cursor = await db.execute(
+            "SELECT * FROM discs WHERE fingerprint = ?",
+            (fingerprint,)
+        )
+        disc_row = await cursor.fetchone()
+        if not disc_row:
+            return None
+
+        disc = dict(disc_row)
+        disc_id = disc["id"]
+
+        # Get tracks
+        cursor = await db.execute(
+            "SELECT * FROM tracks WHERE disc_id = ? ORDER BY track_number",
+            (disc_id,)
+        )
+        track_rows = await cursor.fetchall()
+        tracks = [dict(row) for row in track_rows]
+
+        return {"disc": disc, "tracks": tracks}
