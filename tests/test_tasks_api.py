@@ -417,3 +417,165 @@ class TestListTasksFullData:
         assert len(failed) >= 1
         assert "error" in failed[0]
         assert failed[0]["error"]["detail"] == "[Errno 30] Read-only file system: '/media'"
+
+
+class TestSyncCompletedRipTasks:
+    """Tests for syncing completed rip tasks to database."""
+
+    @pytest.fixture
+    def db_with_disc_and_tracks(self, tmp_path, monkeypatch):
+        """Create a test database with a disc and tracks."""
+        import asyncio
+        from amphigory.database import Database
+        from amphigory.api import disc_repository
+
+        db_path = tmp_path / "test.db"
+        db = Database(db_path)
+        asyncio.run(db.initialize())
+        monkeypatch.setattr(disc_repository, "get_db_path", lambda: db_path)
+
+        # Create a disc with fingerprint and tracks
+        async def create_disc_and_tracks():
+            async with db.connection() as conn:
+                await conn.execute(
+                    "INSERT INTO discs (id, fingerprint, title) VALUES (?, ?, ?)",
+                    (1, "test_fingerprint_123", "Test Movie")
+                )
+                # Create tracks with track_numbers 0, 1, 2
+                for track_num in range(3):
+                    await conn.execute(
+                        "INSERT INTO tracks (disc_id, track_number, status) VALUES (?, ?, ?)",
+                        (1, track_num, "discovered")
+                    )
+                await conn.commit()
+        asyncio.run(create_disc_and_tracks())
+
+        return db_path
+
+    def test_sync_updates_track_ripped_path(self, client, tasks_dir, db_with_disc_and_tracks):
+        """Completed rip task updates track's ripped_path in database."""
+        import asyncio
+        import aiosqlite
+
+        # Create a completed rip task with matching fingerprint and track_number
+        complete_dir = tasks_dir / "complete"
+        complete_dir.mkdir(exist_ok=True)
+
+        task_data = {
+            "task_id": "20251226T100000.000000-rip",
+            "type": "rip",
+            "status": "success",
+            "started_at": "2025-12-26T10:00:00.000000",
+            "completed_at": "2025-12-26T10:30:00.000000",
+            "duration_seconds": 1800,
+            "source": {
+                "disc_fingerprint": "test_fingerprint_123",
+                "track_number": 1
+            },
+            "result": {
+                "destination": {
+                    "directory": "/media/ripped/Test Movie (2024)/",
+                    "filename": "Test Movie (2024).mkv"
+                }
+            }
+        }
+        with open(complete_dir / "20251226T100000.000000-rip.json", "w") as f:
+            json.dump(task_data, f)
+
+        # Call list_tasks to trigger sync
+        response = client.get("/api/tasks")
+        assert response.status_code == 200
+
+        # Check that the track was updated in the database
+        async def check_track():
+            async with aiosqlite.connect(db_with_disc_and_tracks) as conn:
+                conn.row_factory = aiosqlite.Row
+                cursor = await conn.execute(
+                    "SELECT ripped_path, status FROM tracks WHERE track_number = 1"
+                )
+                row = await cursor.fetchone()
+                return dict(row)
+
+        track = asyncio.run(check_track())
+        assert track["ripped_path"] == "/media/ripped/Test Movie (2024)/Test Movie (2024).mkv"
+        assert track["status"] == "ripped"
+
+    def test_sync_does_not_update_already_ripped_tracks(self, client, tasks_dir, db_with_disc_and_tracks):
+        """Sync skips tracks that already have ripped_path set."""
+        import asyncio
+        import aiosqlite
+
+        # Pre-set the track's ripped_path
+        async def preset_track():
+            async with aiosqlite.connect(db_with_disc_and_tracks) as conn:
+                await conn.execute(
+                    "UPDATE tracks SET ripped_path = ?, status = ? WHERE track_number = 1",
+                    ("/original/path.mkv", "ripped")
+                )
+                await conn.commit()
+        asyncio.run(preset_track())
+
+        # Create a completed rip task
+        complete_dir = tasks_dir / "complete"
+        complete_dir.mkdir(exist_ok=True)
+
+        task_data = {
+            "task_id": "20251226T110000.000000-rip",
+            "type": "rip",
+            "status": "success",
+            "source": {
+                "disc_fingerprint": "test_fingerprint_123",
+                "track_number": 1
+            },
+            "result": {
+                "destination": {
+                    "directory": "/new/path/",
+                    "filename": "new_file.mkv"
+                }
+            }
+        }
+        with open(complete_dir / "20251226T110000.000000-rip.json", "w") as f:
+            json.dump(task_data, f)
+
+        # Call list_tasks
+        client.get("/api/tasks")
+
+        # Track should still have original path
+        async def check_track():
+            async with aiosqlite.connect(db_with_disc_and_tracks) as conn:
+                conn.row_factory = aiosqlite.Row
+                cursor = await conn.execute(
+                    "SELECT ripped_path FROM tracks WHERE track_number = 1"
+                )
+                row = await cursor.fetchone()
+                return row["ripped_path"]
+
+        assert asyncio.run(check_track()) == "/original/path.mkv"
+
+    def test_sync_handles_missing_disc(self, client, tasks_dir, db_with_disc_and_tracks):
+        """Sync gracefully handles tasks with unknown disc fingerprint."""
+        # Create a completed rip task with non-existent fingerprint
+        complete_dir = tasks_dir / "complete"
+        complete_dir.mkdir(exist_ok=True)
+
+        task_data = {
+            "task_id": "20251226T120000.000000-rip",
+            "type": "rip",
+            "status": "success",
+            "source": {
+                "disc_fingerprint": "unknown_fingerprint",
+                "track_number": 0
+            },
+            "result": {
+                "destination": {
+                    "directory": "/media/ripped/",
+                    "filename": "file.mkv"
+                }
+            }
+        }
+        with open(complete_dir / "20251226T120000.000000-rip.json", "w") as f:
+            json.dump(task_data, f)
+
+        # Should not raise an error
+        response = client.get("/api/tasks")
+        assert response.status_code == 200

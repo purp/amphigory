@@ -11,10 +11,12 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
+import aiosqlite
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel
 
 from amphigory.api.common import generate_task_id
+from amphigory.api import disc_repository
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -95,6 +97,82 @@ def update_tasks_json(tasks_dir: Path, task_id: str) -> None:
 
     with open(tasks_json, "w") as f:
         json.dump(task_order, f, indent=2)
+
+
+async def sync_completed_rip_tasks(tasks_dir: Path) -> int:
+    """Sync completed rip tasks to the database.
+
+    For each successful rip task in complete/, finds the corresponding track
+    by disc fingerprint and track number, then updates the track's ripped_path
+    and status if not already set.
+
+    Args:
+        tasks_dir: The tasks directory containing complete/
+
+    Returns:
+        Number of tracks updated
+    """
+    updated_count = 0
+    complete_dir = tasks_dir / "complete"
+
+    if not complete_dir.exists():
+        return 0
+
+    db_path = disc_repository.get_db_path()
+    if not db_path.exists():
+        return 0
+
+    async with aiosqlite.connect(db_path) as conn:
+        for task_file in complete_dir.glob("*-rip.json"):
+            try:
+                with open(task_file) as f:
+                    data = json.load(f)
+
+                # Only process successful rip tasks
+                if data.get("status") != "success":
+                    continue
+                if data.get("type") != "rip":
+                    continue
+
+                source = data.get("source", {})
+                result = data.get("result", {})
+                destination = result.get("destination", {})
+
+                fingerprint = source.get("disc_fingerprint")
+                track_number = source.get("track_number")
+                directory = destination.get("directory", "")
+                filename = destination.get("filename", "")
+
+                if not fingerprint or track_number is None or not filename:
+                    continue
+
+                # Build full ripped path
+                ripped_path = f"{directory}{filename}"
+
+                # Find track by fingerprint and track_number, only update if ripped_path is NULL
+                cursor = await conn.execute(
+                    """
+                    UPDATE tracks
+                    SET ripped_path = ?, status = 'ripped'
+                    WHERE disc_id IN (SELECT id FROM discs WHERE fingerprint = ?)
+                      AND track_number = ?
+                      AND ripped_path IS NULL
+                    """,
+                    (ripped_path, fingerprint, track_number)
+                )
+
+                if cursor.rowcount > 0:
+                    updated_count += cursor.rowcount
+                    logger.info(f"Updated track {track_number} for disc {fingerprint[:12]}... with ripped_path")
+
+            except (json.JSONDecodeError, IOError) as e:
+                logger.warning(f"Error processing completed task {task_file.name}: {e}")
+                continue
+
+        if updated_count > 0:
+            await conn.commit()
+
+    return updated_count
 
 
 def cleanup_old_tasks(tasks_dir: Path, max_age_hours: int = 24) -> dict:
@@ -263,6 +341,9 @@ async def list_tasks() -> TaskListResponse:
     """List all tasks across all states."""
     tasks_dir = get_tasks_dir()
     tasks = []
+
+    # Sync completed rip tasks to database
+    await sync_completed_rip_tasks(tasks_dir)
 
     # Collect from queued/
     queued_dir = tasks_dir / "queued"
