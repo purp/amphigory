@@ -428,3 +428,43 @@ class TestCleanupPage:
         response = test_client.get("/cleanup")
         assert response.status_code == 200
         assert "Cleanup" in response.text
+
+
+class TestProgressRelay:
+    """Tests for progress message relay."""
+
+    def test_progress_message_broadcast_to_clients(self, test_client):
+        """Progress messages from daemon are broadcast to browser clients."""
+        import time
+
+        # Connect as browser client
+        with test_client.websocket_connect("/ws") as browser_ws:
+            # Connect as daemon
+            with test_client.websocket_connect("/ws") as daemon_ws:
+                # Register daemon
+                daemon_ws.send_json({
+                    "type": "daemon_config",
+                    "daemon_id": "test-daemon",
+                    "makemkvcon_path": "/usr/bin/makemkvcon"
+                })
+
+                # Small delay to let registration process
+                time.sleep(0.1)
+
+                # Send progress from daemon
+                daemon_ws.send_json({
+                    "type": "progress",
+                    "task_id": "test-task-123",
+                    "percent": 45,
+                    "eta_seconds": 120
+                })
+
+                # Browser should receive progress
+                # May need to skip daemon_config broadcast first
+                msg = browser_ws.receive_json()
+                while msg.get("type") != "progress":
+                    msg = browser_ws.receive_json()
+
+                assert msg["type"] == "progress"
+                assert msg["task_id"] == "test-task-123"
+                assert msg["percent"] == 45

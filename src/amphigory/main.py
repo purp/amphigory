@@ -293,6 +293,17 @@ async def websocket_endpoint(websocket: WebSocket):
                     if daemon_id in _daemons:
                         _daemons[daemon_id].last_seen = datetime.now()
 
+                elif msg_type == "progress" and daemon_id:
+                    # Relay progress to browser clients
+                    await manager.broadcast({
+                        "type": "progress",
+                        "task_id": message.get("task_id"),
+                        "percent": message.get("percent"),
+                        "eta_seconds": message.get("eta_seconds"),
+                        "current_size_bytes": message.get("current_size_bytes"),
+                        "speed": message.get("speed"),
+                    })
+
             except json.JSONDecodeError:
                 pass  # Ignore malformed messages
 
