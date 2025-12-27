@@ -189,8 +189,10 @@ class TaskProcessor:
         if not preset_name:
             preset_category = "bluray"  # Default
             preset_name = self.preset_manager.get_active_preset(preset_category)
+        else:
+            preset_category = "bluray"  # Preset category for provided preset
 
-        preset_path = self.preset_manager.get_preset_path("bluray")
+        preset_path = self.preset_manager.get_preset_path(preset_category)
 
         # Progress callback wrapper
         def progress_cb(p: TranscodeProgress):

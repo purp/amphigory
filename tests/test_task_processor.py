@@ -4,7 +4,7 @@ import pytest
 from pathlib import Path
 from unittest.mock import MagicMock
 
-from amphigory.task_processor import TaskProcessor
+from amphigory.task_processor import TaskProcessor, parse_eta_to_seconds
 
 
 @pytest.fixture
@@ -283,3 +283,29 @@ def test_task_processor_failed_task(mock_db, temp_tasks_dir, tmp_path):
     failure = json.loads(failed_file.read_text())
     assert failure["status"] == "failed"
     assert failure["error"]["message"] == "Test error"
+
+
+class TestParseEtaToSeconds:
+    """Tests for parse_eta_to_seconds helper function."""
+
+    def test_valid_eta_string(self):
+        """Test parsing valid ETA string like '00h12m34s'."""
+        result = parse_eta_to_seconds("00h12m34s")
+        assert result == 754  # 0*3600 + 12*60 + 34 = 754
+
+    def test_eta_with_hours(self):
+        """Test parsing ETA with hours."""
+        result = parse_eta_to_seconds("01h30m00s")
+        assert result == 5400  # 1*3600 + 30*60 + 0 = 5400
+
+    def test_empty_string_returns_none(self):
+        """Test that empty string returns None."""
+        result = parse_eta_to_seconds("")
+        assert result is None
+
+    def test_malformed_input_returns_none(self):
+        """Test that malformed input returns None."""
+        assert parse_eta_to_seconds("12:34:56") is None
+        assert parse_eta_to_seconds("invalid") is None
+        assert parse_eta_to_seconds("12m34s") is None  # Missing hours
+        assert parse_eta_to_seconds("00h12m") is None  # Missing seconds
