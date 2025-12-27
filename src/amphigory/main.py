@@ -1,5 +1,6 @@
 """FastAPI application entry point."""
 
+import asyncio
 import logging
 from pathlib import Path
 from contextlib import asynccontextmanager
@@ -31,6 +32,7 @@ from amphigory.config import get_config
 from amphigory.api import disc_router, tracks_router, settings_router, tasks_router, drives_router, library_router, cleanup_router
 from amphigory.api.presets import router as presets_router
 from amphigory.websocket import manager
+from amphigory.task_processor import TaskProcessor
 
 # Paths
 BASE_DIR = Path(__file__).parent
@@ -57,10 +59,33 @@ async def lifespan(app: FastAPI):
     app.state.db = Database(config.database_path)
     await app.state.db.initialize()
 
+    # Start task processor
+    import os
+    data_dir = Path(os.environ.get("AMPHIGORY_DATA", "/data"))
+
+    def progress_callback(progress: dict):
+        # Broadcast to all connected clients
+        asyncio.create_task(manager.broadcast({
+            "type": "progress",
+            **progress,
+        }))
+
+    app.state.task_processor = TaskProcessor(
+        db=app.state.db,
+        tasks_dir=data_dir / "tasks",
+        inbox_dir=config.inbox_dir,
+        preset_dir=config.preset_dir,
+        progress_callback=progress_callback,
+    )
+    await app.state.task_processor.start()
+
     yield
 
     # Cleanup
-    await app.state.db.close()
+    try:
+        await app.state.task_processor.stop()
+    finally:
+        await app.state.db.close()
 
 
 app = FastAPI(
