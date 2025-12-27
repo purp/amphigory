@@ -16,6 +16,10 @@ from .models import (
 # Default recovery directory for when storage is unavailable
 RECOVERY_DIR = Path.home() / ".amphigory" / "recovery"
 
+# Task types that the daemon should process (scan and rip)
+# Transcode and insert tasks are handled by the webapp
+DAEMON_TASK_TYPES = {"scan", "rip"}
+
 
 class TaskQueue:
     """
@@ -66,9 +70,12 @@ class TaskQueue:
         Find next task to process.
 
         1. Read tasks.json for order
-        2. Find first ID with file in queued/
+        2. Find first ID with file in queued/ that is a daemon task type
         3. Move file to in_progress/
         4. Parse and return task
+
+        Only processes scan and rip tasks. Transcode and insert tasks
+        are left for the webapp to handle.
 
         Returns:
             Next task to process, or None if queue is empty
@@ -76,6 +83,11 @@ class TaskQueue:
         task_order = self.get_task_order()
 
         for task_id in task_order:
+            # Extract task type from ID suffix (e.g., "20251227T140000.000000-rip" -> "rip")
+            task_type = task_id.rsplit("-", 1)[-1] if "-" in task_id else None
+            if task_type not in DAEMON_TASK_TYPES:
+                continue
+
             queued_file = self.queued_dir / f"{task_id}.json"
             if queued_file.exists():
                 # Move to in_progress

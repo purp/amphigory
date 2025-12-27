@@ -105,18 +105,18 @@ class TestGetNextTask:
         queue = TaskQueue(tmp_path)
         queue.ensure_directories()
 
-        # tasks.json with 3 IDs
+        # tasks.json with 3 IDs (using new format with task type suffix)
         tasks_json = tmp_path / "tasks.json"
         tasks_json.write_text(json.dumps([
-            "20251221-143052-001",
-            "20251221-143052-002",
-            "20251221-143052-003",
+            "20251221T143052.000001-scan",
+            "20251221T143052.000002-scan",
+            "20251221T143052.000003-scan",
         ]))
 
         # Only create file for second task
-        task_file = tmp_path / "queued" / "20251221-143052-002.json"
+        task_file = tmp_path / "queued" / "20251221T143052.000002-scan.json"
         task_file.write_text(json.dumps({
-            "id": "20251221-143052-002",
+            "id": "20251221T143052.000002-scan",
             "type": "scan",
             "created_at": "2025-12-21T14:30:52Z",
         }))
@@ -124,7 +124,7 @@ class TestGetNextTask:
         task = queue.get_next_task()
 
         assert isinstance(task, ScanTask)
-        assert task.id == "20251221-143052-002"
+        assert task.id == "20251221T143052.000002-scan"
 
     def test_moves_task_to_in_progress(self, tmp_path):
         """Move task file from queued/ to in_progress/."""
@@ -134,11 +134,11 @@ class TestGetNextTask:
         queue.ensure_directories()
 
         tasks_json = tmp_path / "tasks.json"
-        tasks_json.write_text(json.dumps(["20251221-143052-001"]))
+        tasks_json.write_text(json.dumps(["20251221T143052.000001-scan"]))
 
-        queued_file = tmp_path / "queued" / "20251221-143052-001.json"
+        queued_file = tmp_path / "queued" / "20251221T143052.000001-scan.json"
         queued_file.write_text(json.dumps({
-            "id": "20251221-143052-001",
+            "id": "20251221T143052.000001-scan",
             "type": "scan",
             "created_at": "2025-12-21T14:30:52Z",
         }))
@@ -146,7 +146,7 @@ class TestGetNextTask:
         queue.get_next_task()
 
         assert not queued_file.exists()
-        assert (tmp_path / "in_progress" / "20251221-143052-001.json").exists()
+        assert (tmp_path / "in_progress" / "20251221T143052.000001-scan.json").exists()
 
     def test_parses_rip_task(self, tmp_path):
         """Parse rip task with track and output info."""
@@ -157,11 +157,11 @@ class TestGetNextTask:
         queue.ensure_directories()
 
         tasks_json = tmp_path / "tasks.json"
-        tasks_json.write_text(json.dumps(["20251221-143052-001"]))
+        tasks_json.write_text(json.dumps(["20251221T143052.000001-rip"]))
 
-        task_file = tmp_path / "queued" / "20251221-143052-001.json"
+        task_file = tmp_path / "queued" / "20251221T143052.000001-rip.json"
         task_file.write_text(json.dumps({
-            "id": "20251221-143052-001",
+            "id": "20251221T143052.000001-rip",
             "type": "rip",
             "created_at": "2025-12-21T14:30:52Z",
             "track": {
@@ -504,3 +504,35 @@ class TestStorageRecovery:
 
         assert moved == 3
         assert len(list(queue.complete_dir.iterdir())) == 3
+
+
+class TestDaemonTaskFiltering:
+    """Tests for daemon filtering to only process scan and rip tasks."""
+
+    def test_daemon_only_claims_scan_and_rip_tasks(self, tmp_path):
+        """Test daemon ignores transcode tasks."""
+        from amphigory_daemon.tasks import TaskQueue
+        import json
+
+        queue = TaskQueue(tmp_path)
+        queue.ensure_directories()
+
+        # Add a transcode task to queue
+        transcode_id = "20251227T140000.000000-transcode"
+        transcode_file = tmp_path / "queued" / f"{transcode_id}.json"
+        with open(transcode_file, "w") as f:
+            json.dump({
+                "id": transcode_id,
+                "type": "transcode",
+                "created_at": "2025-12-27T14:00:00",
+                "input": "/tmp/test.mkv",
+                "output": "/tmp/out.mkv",
+            }, f)
+
+        # Update tasks.json
+        with open(tmp_path / "tasks.json", "w") as f:
+            json.dump([transcode_id], f)
+
+        # Daemon should not claim it
+        task = queue.get_next_task()
+        assert task is None
