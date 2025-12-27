@@ -982,13 +982,20 @@ body {
 }
 
 .track-status .status-icon.missing {
-    opacity: 1;
-    color: var(--error);
-    text-decoration: line-through;
+    opacity: 0.3;
+    position: relative;
 }
 
 .track-status .status-icon.pending {
     opacity: 0.3;
+}
+
+.track-status .status-icon.missing::after {
+    content: "❓";
+    position: absolute;
+    font-size: 0.6em;
+    right: -2px;
+    bottom: -2px;
 }
 
 /* Reset link */
