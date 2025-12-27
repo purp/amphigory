@@ -110,16 +110,7 @@ function escapeHtml(text) {
 }
 
 // Plex naming helper functions (mirror Python naming.py logic)
-const PLEX_SUFFIXES = {
-    'behind_the_scenes': '-behindthescenes',
-    'deleted_scenes': '-deleted',
-    'featurettes': '-featurette',
-    'interviews': '-interview',
-    'scenes': '-scene',
-    'shorts': '-short',
-    'trailers': '-trailer',
-    'other': '-other',
-};
+// Note: Plex suffixes removed - extras go in subdirectories so suffixes are redundant
 
 function sanitizeFilename(name) {
     // Check for null/undefined
@@ -155,9 +146,8 @@ function generateTrackFilename(trackType, movieTitle, year, trackName, language)
         }
     }
 
-    // Extras naming: "Track Name-suffix.mkv"
-    const suffix = PLEX_SUFFIXES[trackType] || '-other';
-    return `${sanitizedTrackName}${suffix}.mkv`;
+    // Extras naming: "Track Name.mkv" (no suffix needed since extras go in subdirectories)
+    return `${sanitizedTrackName}.mkv`;
 }
 
 // Preset management

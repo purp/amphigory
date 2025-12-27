@@ -7,19 +7,8 @@ from typing import Union
 # Invalid filename characters that need to be removed
 INVALID_FILENAME_CHARS = '<>:"/\\|?*'
 
-# Plex suffix mappings for extras (lowercase, no spaces)
-PLEX_SUFFIXES = {
-    'behind_the_scenes': '-behindthescenes',
-    'deleted_scenes': '-deleted',
-    'featurettes': '-featurette',
-    'interviews': '-interview',
-    'scenes': '-scene',
-    'shorts': '-short',
-    'trailers': '-trailer',
-    'other': '-other',
-}
-
 # Plex directory mappings for extras (Title Case)
+# Note: Plex suffix mappings removed - extras go in subdirectories so suffixes are redundant
 PLEX_DIRECTORIES = {
     'behind_the_scenes': 'Behind The Scenes',
     'deleted_scenes': 'Deleted Scenes',
@@ -120,9 +109,8 @@ def generate_track_filename(
         else:
             return f"{base_name}.mkv"
 
-    # Extras naming: "Track Name-suffix.mkv" (no IMDB tag)
-    suffix = PLEX_SUFFIXES.get(track_type, '-other')
-    return f"{sanitized_track_name}{suffix}.mkv"
+    # Extras naming: "Track Name.mkv" (no suffix needed since extras go in subdirectories)
+    return f"{sanitized_track_name}.mkv"
 
 
 def generate_output_directory(

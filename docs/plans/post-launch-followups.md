@@ -15,7 +15,8 @@ Items deferred to focus on getting to a fully functional system first.
       * When a user selects a TMDB result, the frontend now displays TMDB and IMDB links for verification
 - [ ] It would be nice to have a file browser to pick the output directory. Perhaps treat it as if I were choosing a file for upload while letting me choose a folder (if possible) or taking the `dirname` of the file I choose (if I can't pick folders)
 - [ ] "Process Selected Tracks" button CSS doesn't look disabled when disabled (verify and fix)
-- [ ] Remove media type suffixes from filenames (e.g., `-featurette`, `-deleted`) since extras are organized into subdirectories
+- [x] Remove media type suffixes from filenames (e.g., `-featurette`, `-deleted`) since extras are organized into subdirectories
+      * FIXED: Removed PLEX_SUFFIXES from naming.py and disc.html JavaScript - extras now just use track name
 
 We should include the size of the input source file in rip task responses to give us some data about how long is reasonable to have expected a rip to run.
 

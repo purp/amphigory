@@ -160,7 +160,7 @@ class TestGenerateTrackFilename:
         assert filename == 'The Matrix (1999).mkv'
 
     def test_trailer_naming(self):
-        """Test trailer naming: 'Name-trailer.mkv'."""
+        """Test trailer naming: 'Name.mkv' (no suffix, extras go in subdirectories)."""
         filename = generate_track_filename(
             track_type='trailers',
             movie_title='The Matrix',
@@ -168,10 +168,10 @@ class TestGenerateTrackFilename:
             track_name='Theatrical Trailer',
             language='en'
         )
-        assert filename == 'Theatrical Trailer-trailer.mkv'
+        assert filename == 'Theatrical Trailer.mkv'
 
     def test_featurette_naming(self):
-        """Test featurette naming: 'Name-featurette.mkv'."""
+        """Test featurette naming: 'Name.mkv' (no suffix, extras go in subdirectories)."""
         filename = generate_track_filename(
             track_type='featurettes',
             movie_title='The Matrix',
@@ -179,10 +179,10 @@ class TestGenerateTrackFilename:
             track_name='Making Of',
             language='en'
         )
-        assert filename == 'Making Of-featurette.mkv'
+        assert filename == 'Making Of.mkv'
 
     def test_behind_the_scenes_naming(self):
-        """Test behind the scenes naming."""
+        """Test behind the scenes naming: 'Name.mkv' (no suffix, extras go in subdirectories)."""
         filename = generate_track_filename(
             track_type='behind_the_scenes',
             movie_title='The Matrix',
@@ -190,10 +190,10 @@ class TestGenerateTrackFilename:
             track_name='Behind The Scenes',
             language='en'
         )
-        assert filename == 'Behind The Scenes-behindthescenes.mkv'
+        assert filename == 'Behind The Scenes.mkv'
 
     def test_deleted_scenes_naming(self):
-        """Test deleted scenes naming."""
+        """Test deleted scenes naming: 'Name.mkv' (no suffix, extras go in subdirectories)."""
         filename = generate_track_filename(
             track_type='deleted_scenes',
             movie_title='The Matrix',
@@ -201,10 +201,10 @@ class TestGenerateTrackFilename:
             track_name='Deleted Scene 1',
             language='en'
         )
-        assert filename == 'Deleted Scene 1-deleted.mkv'
+        assert filename == 'Deleted Scene 1.mkv'
 
     def test_interviews_naming(self):
-        """Test interviews naming."""
+        """Test interviews naming: 'Name.mkv' (no suffix, extras go in subdirectories)."""
         filename = generate_track_filename(
             track_type='interviews',
             movie_title='The Matrix',
@@ -212,10 +212,10 @@ class TestGenerateTrackFilename:
             track_name='Director Interview',
             language='en'
         )
-        assert filename == 'Director Interview-interview.mkv'
+        assert filename == 'Director Interview.mkv'
 
     def test_scenes_naming(self):
-        """Test scenes naming."""
+        """Test scenes naming: 'Name.mkv' (no suffix, extras go in subdirectories)."""
         filename = generate_track_filename(
             track_type='scenes',
             movie_title='The Matrix',
@@ -223,10 +223,10 @@ class TestGenerateTrackFilename:
             track_name='Fight Scene',
             language='en'
         )
-        assert filename == 'Fight Scene-scene.mkv'
+        assert filename == 'Fight Scene.mkv'
 
     def test_shorts_naming(self):
-        """Test shorts naming."""
+        """Test shorts naming: 'Name.mkv' (no suffix, extras go in subdirectories)."""
         filename = generate_track_filename(
             track_type='shorts',
             movie_title='The Matrix',
@@ -234,10 +234,10 @@ class TestGenerateTrackFilename:
             track_name='Animatrix Short',
             language='en'
         )
-        assert filename == 'Animatrix Short-short.mkv'
+        assert filename == 'Animatrix Short.mkv'
 
     def test_other_naming(self):
-        """Test other extras naming."""
+        """Test other extras naming: 'Name.mkv' (no suffix, extras go in subdirectories)."""
         filename = generate_track_filename(
             track_type='other',
             movie_title='The Matrix',
@@ -245,7 +245,7 @@ class TestGenerateTrackFilename:
             track_name='Other Extra',
             language='en'
         )
-        assert filename == 'Other Extra-other.mkv'
+        assert filename == 'Other Extra.mkv'
 
     def test_track_name_sanitization(self):
         """Test that track names are sanitized."""
@@ -256,7 +256,7 @@ class TestGenerateTrackFilename:
             track_name='Trailer: Extended Cut',
             language='en'
         )
-        assert filename == 'Trailer Extended Cut-trailer.mkv'
+        assert filename == 'Trailer Extended Cut.mkv'
 
     def test_year_validation(self):
         """Test that year validation works correctly."""
@@ -516,7 +516,7 @@ class TestGenerateTrackFilenameWithImdb:
         assert result == "Coco (2017) {imdb-tt2380307} {lang-alt1}.mkv"
 
     def test_extras_dont_get_imdb_tag(self):
-        """Extras use simple naming without IMDB."""
+        """Extras use simple naming without IMDB (no suffix, extras go in subdirectories)."""
         result = generate_track_filename(
             track_type="trailers",
             movie_title="Coco",
@@ -525,7 +525,7 @@ class TestGenerateTrackFilenameWithImdb:
             language="en",
             imdb_id="tt2380307",
         )
-        assert result == "Trailer 1-trailer.mkv"
+        assert result == "Trailer 1.mkv"
 
 
 class TestGenerateOutputDirectoryWithImdb:
