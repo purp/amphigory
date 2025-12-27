@@ -76,6 +76,27 @@ class TaskListResponse(BaseModel):
     tasks: list[TaskStatusResponse]
 
 
+class ProcessTrackRequest(BaseModel):
+    """Single track to process."""
+    track_number: int
+    output_filename: str
+    output_directory: Optional[str] = None
+    preset: Optional[str] = None
+    expected_size_bytes: Optional[int] = None
+    expected_duration: Optional[str] = None
+
+
+class ProcessTracksRequest(BaseModel):
+    """Request to process multiple tracks."""
+    tracks: list[ProcessTrackRequest]
+    disc_fingerprint: str
+
+
+class ProcessTracksResponse(BaseModel):
+    """Response with created tasks."""
+    tasks: list[dict]
+
+
 def ensure_directories(tasks_dir: Path) -> None:
     """Ensure task directories exist."""
     (tasks_dir / "queued").mkdir(parents=True, exist_ok=True)
@@ -309,6 +330,102 @@ async def create_rip_task(request: CreateRipTaskRequest) -> TaskResponse:
     cleanup_old_tasks(tasks_dir)
 
     return TaskResponse(task_id=task_id, type="rip", status="queued")
+
+
+@router.post("/process", status_code=status.HTTP_201_CREATED, response_model=ProcessTracksResponse)
+async def process_tracks(request: ProcessTracksRequest) -> ProcessTracksResponse:
+    """Create rip + transcode tasks for selected tracks.
+
+    For each track, creates:
+    1. Rip task (input: null, output: ripped path)
+    2. Transcode task (input: ripped path, output: inbox path)
+    """
+    from amphigory.config import get_config
+
+    tasks_dir = get_tasks_dir()
+    ensure_directories(tasks_dir)
+    # Also ensure failed/ directory for unified queue
+    (tasks_dir / "failed").mkdir(parents=True, exist_ok=True)
+
+    config = get_config()
+
+    created_tasks = []
+
+    for track in request.tracks:
+        # Build output paths
+        ripped_dir = os.environ.get("DAEMON_RIPPED_DIR") or str(config.ripped_dir)
+        output_dir = track.output_directory or f"{ripped_dir}/"
+        # Ensure output_dir ends with /
+        if not output_dir.endswith("/"):
+            output_dir += "/"
+        ripped_path = f"{output_dir}{track.output_filename}"
+
+        inbox_dir = str(config.inbox_dir)
+        # Replace .mkv with .mp4 for transcoded output
+        stem = track.output_filename.rsplit(".", 1)[0]
+        transcode_filename = f"{stem}.mp4"
+        inbox_path = f"{inbox_dir}/{stem}/{transcode_filename}"
+
+        # Create rip task
+        rip_id = generate_task_id("rip")
+        rip_task = {
+            "id": rip_id,
+            "type": "rip",
+            "created_at": datetime.now().isoformat(),
+            "input": None,
+            "output": ripped_path,
+            "track": {
+                "number": track.track_number,
+                "expected_size_bytes": track.expected_size_bytes,
+                "expected_duration": track.expected_duration,
+            },
+            "output_info": {
+                "directory": output_dir,
+                "filename": track.output_filename,
+            },
+            "disc_fingerprint": request.disc_fingerprint,
+        }
+
+        rip_file = tasks_dir / "queued" / f"{rip_id}.json"
+        with open(rip_file, "w") as f:
+            json.dump(rip_task, f, indent=2)
+        update_tasks_json(tasks_dir, rip_id)
+
+        created_tasks.append({
+            "task_id": rip_id,
+            "type": "rip",
+            "input": None,
+            "output": ripped_path,
+        })
+
+        # Create transcode task (depends on rip output)
+        transcode_id = generate_task_id("transcode")
+        transcode_task = {
+            "id": transcode_id,
+            "type": "transcode",
+            "created_at": datetime.now().isoformat(),
+            "input": ripped_path,
+            "output": inbox_path,
+            "preset": track.preset,
+            "disc_fingerprint": request.disc_fingerprint,
+            "track_number": track.track_number,
+        }
+
+        transcode_file = tasks_dir / "queued" / f"{transcode_id}.json"
+        with open(transcode_file, "w") as f:
+            json.dump(transcode_task, f, indent=2)
+        update_tasks_json(tasks_dir, transcode_id)
+
+        created_tasks.append({
+            "task_id": transcode_id,
+            "type": "transcode",
+            "input": ripped_path,
+            "output": inbox_path,
+        })
+
+    cleanup_old_tasks(tasks_dir)
+
+    return ProcessTracksResponse(tasks=created_tasks)
 
 
 @router.get("/{task_id}", response_model=TaskStatusResponse)

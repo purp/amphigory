@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-VALID_TASK_TYPES = {"scan", "rip"}
+VALID_TASK_TYPES = {"scan", "rip", "transcode"}
 
 
 def generate_task_id(task_type: str) -> str:

@@ -628,3 +628,34 @@ class TestSyncCompletedRipTasks:
         ripped_path = asyncio.run(check_track())
         # Should be translated from /Volumes/... to /media/ripped/...
         assert ripped_path == "/media/ripped/Test Movie (2024)/Test Movie (2024).mkv"
+
+
+class TestCreateProcessTasks:
+    """Tests for POST /api/tasks/process."""
+
+    def test_create_process_tasks_creates_rip_and_transcode(self, client, tasks_dir):
+        """Test that process creates both rip and transcode tasks."""
+        # Ensure failed/ directory exists (for unified queue)
+        (tasks_dir / "failed").mkdir(parents=True, exist_ok=True)
+
+        response = client.post("/api/tasks/process", json={
+            "tracks": [
+                {
+                    "track_number": 1,
+                    "output_filename": "Movie (2024).mkv",
+                    "output_directory": "/media/ripped/Movie (2024)/",
+                    "preset": "H.265 MKV 1080p",
+                }
+            ],
+            "disc_fingerprint": "abc123",
+        })
+
+        assert response.status_code == 201
+        data = response.json()
+        assert len(data["tasks"]) == 2
+
+        rip_task = next(t for t in data["tasks"] if t["type"] == "rip")
+        transcode_task = next(t for t in data["tasks"] if t["type"] == "transcode")
+
+        # Transcode input should match rip output
+        assert transcode_task["input"] == rip_task["output"]

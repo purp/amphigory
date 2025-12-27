@@ -77,4 +77,5 @@ def test_valid_task_types_constant():
     """Test that VALID_TASK_TYPES contains expected values."""
     assert "scan" in VALID_TASK_TYPES
     assert "rip" in VALID_TASK_TYPES
-    assert len(VALID_TASK_TYPES) == 2
+    assert "transcode" in VALID_TASK_TYPES
+    assert len(VALID_TASK_TYPES) == 3
