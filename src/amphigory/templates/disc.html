@@ -654,6 +654,30 @@ function updateSelectedCount() {
 async function submitRipTasks(event) {
     event.preventDefault();
 
+    // Save disc metadata first (if we have TMDB/IMDB data)
+    const fingerprint = scanResult?.fingerprint;
+    const title = document.getElementById('disc-title').value.trim();
+    const year = document.getElementById('disc-year').value.trim();
+
+    if (fingerprint && title && year && (window.selectedTMDBId || window.selectedIMDBId)) {
+        try {
+            await fetch('/api/disc/metadata', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    fingerprint: fingerprint,
+                    tmdb_id: window.selectedTMDBId || null,
+                    imdb_id: window.selectedIMDBId || null,
+                    title: title,
+                    year: parseInt(year)
+                })
+            });
+        } catch (error) {
+            console.error('Failed to save metadata:', error);
+            // Continue with processing even if metadata save fails
+        }
+    }
+
     const selectedTracks = Array.from(document.querySelectorAll('input[name="tracks"]:checked'))
         .map(cb => parseInt(cb.value));
     const outputDir = document.getElementById('output-dir').value;
