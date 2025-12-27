@@ -1500,7 +1500,10 @@ async function saveDiscInfo() {
             }, 2000);
         } else {
             const error = await response.json();
-            alert('Failed to save: ' + (error.detail || 'Unknown error'));
+            const errorDetail = Array.isArray(error.detail)
+                ? error.detail.map(e => e.msg).join(', ')
+                : (error.detail || 'Unknown error');
+            alert('Failed to save: ' + errorDetail);
         }
     } catch (error) {
         alert('Failed to save: ' + error.message);
@@ -1561,7 +1564,10 @@ async function saveTrackInfo() {
             }, 2000);
         } else {
             const error = await response.json();
-            alert('Failed to save: ' + (error.detail || 'Unknown error'));
+            const errorDetail = Array.isArray(error.detail)
+                ? error.detail.map(e => e.msg).join(', ')
+                : (error.detail || 'Unknown error');
+            alert('Failed to save: ' + errorDetail);
             btn.textContent = 'Save Track Info';
             btn.disabled = false;
         }
