@@ -37,6 +37,29 @@
 
 <script>
 let tasks = { queued: [], in_progress: [], completed: [] };
+let elapsedInterval = null;
+
+function formatTime(dateStr) {
+    const date = new Date(dateStr);
+    return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+}
+
+function formatElapsed(startDateStr) {
+    const start = new Date(startDateStr);
+    const now = new Date();
+    const seconds = Math.floor((now - start) / 1000);
+
+    if (seconds < 60) return `${seconds}s`;
+
+    const minutes = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+
+    if (minutes < 60) return `${minutes}m ${secs}s`;
+
+    const hours = Math.floor(minutes / 60);
+    const mins = minutes % 60;
+    return `${hours}h ${mins}m ${secs}s`;
+}
 
 async function loadTasks() {
     try {
@@ -59,18 +82,32 @@ async function loadTasks() {
 function renderCurrentTask() {
     const container = document.getElementById('current-task');
 
+    // Clear any existing interval
+    if (elapsedInterval) {
+        clearInterval(elapsedInterval);
+        elapsedInterval = null;
+    }
+
     if (tasks.in_progress.length === 0) {
         container.innerHTML = '<p class="text-muted">No task currently running</p>';
         return;
     }
 
     const task = tasks.in_progress[0];
+    const startedAt = task.started_at;
+    const hasStartTime = startedAt && startedAt !== '';
+
     container.innerHTML = `
         <div class="task-item task-running">
             <div class="task-header">
                 <span class="task-type">${task.type}</span>
-                <span class="task-id">${task.id.substring(0, 8)}...</span>
+                <span class="task-id" title="${task.id}">${task.id.substring(0, 12)}...</span>
             </div>
+            ${hasStartTime ? `
+            <div class="task-timing">
+                Started: ${formatTime(startedAt)} · Elapsed: <span id="elapsed-time">${formatElapsed(startedAt)}</span>
+            </div>
+            ` : ''}
             <div class="progress-container">
                 <div class="progress-bar">
                     <div class="progress-bar-fill" id="progress-${task.id}" style="width: 0%"></div>
@@ -79,6 +116,16 @@ function renderCurrentTask() {
             </div>
         </div>
     `;
+
+    // Update elapsed time every second
+    if (hasStartTime) {
+        elapsedInterval = setInterval(() => {
+            const elapsedSpan = document.getElementById('elapsed-time');
+            if (elapsedSpan) {
+                elapsedSpan.textContent = formatElapsed(startedAt);
+            }
+        }, 1000);
+    }
 }
 
 function renderQueuedTasks() {
