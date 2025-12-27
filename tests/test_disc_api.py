@@ -1068,3 +1068,61 @@ class TestDiscMetadata:
         })
 
         assert response.status_code == 404
+
+
+class TestGetDiscMetadata:
+    """Tests for GET /api/disc/metadata/{fingerprint}."""
+
+    @pytest.fixture
+    def db_with_disc(self, tmp_path, monkeypatch):
+        """Create a test database with a disc."""
+        import asyncio
+        from amphigory.database import Database
+        from amphigory.api import disc_repository
+
+        db_path = tmp_path / "test.db"
+        db = Database(db_path)
+        asyncio.run(db.initialize())
+        monkeypatch.setattr(disc_repository, "get_db_path", lambda: db_path)
+
+        # Create a disc with fingerprint
+        async def create_disc():
+            async with db.connection() as conn:
+                await conn.execute(
+                    "INSERT INTO discs (fingerprint, title) VALUES (?, ?)",
+                    ("abc123fingerprint", "Unknown Disc")
+                )
+                await conn.commit()
+        asyncio.run(create_disc())
+
+        return db_path
+
+    def test_returns_metadata_for_known_disc(self, client, db_with_disc):
+        """Returns stored metadata for disc."""
+        import asyncio
+        import aiosqlite
+
+        # First store some metadata
+        async def store_metadata():
+            async with aiosqlite.connect(db_with_disc) as conn:
+                await conn.execute(
+                    """UPDATE discs SET tmdb_id = ?, imdb_id = ?, title = ?, year = ?
+                       WHERE fingerprint = ?""",
+                    ("129", "tt0347149", "Howl's Moving Castle", 2004, "abc123fingerprint")
+                )
+                await conn.commit()
+        asyncio.run(store_metadata())
+
+        response = client.get("/api/disc/metadata/abc123fingerprint")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["tmdb_id"] == "129"
+        assert data["imdb_id"] == "tt0347149"
+        assert data["title"] == "Howl's Moving Castle"
+        assert data["year"] == 2004
+
+    def test_returns_404_for_unknown_fingerprint(self, client, db_with_disc):
+        """Returns 404 for unknown fingerprint."""
+        response = client.get("/api/disc/metadata/unknown_fp")
+        assert response.status_code == 404

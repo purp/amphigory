@@ -432,8 +432,74 @@ async function pollForScanResult(taskId) {
     poll();
 }
 
+// Show metadata links (TMDB/IMDB) for saved disc
+function showMetadataLinks(title, tmdbId, imdbId) {
+    const metadataLinksRow = document.getElementById('metadata-links-row');
+    const metadataLinksDiv = document.getElementById('metadata-links');
+    if (!metadataLinksDiv) return;
+
+    metadataLinksDiv.innerHTML = '';
+
+    if (tmdbId) {
+        metadataLinksDiv.appendChild(document.createTextNode('TMDB: '));
+        const tmdbLink = document.createElement('a');
+        tmdbLink.href = `https://www.themoviedb.org/movie/${tmdbId}`;
+        tmdbLink.target = '_blank';
+        tmdbLink.textContent = title || 'TMDB';
+        tmdbLink.style.marginRight = '0.5rem';
+        metadataLinksDiv.appendChild(tmdbLink);
+    }
+
+    if (imdbId) {
+        if (tmdbId) {
+            metadataLinksDiv.appendChild(document.createTextNode(' | IMDB: '));
+        } else {
+            metadataLinksDiv.appendChild(document.createTextNode('IMDB: '));
+        }
+        const imdbLink = document.createElement('a');
+        imdbLink.href = `https://www.imdb.com/title/${imdbId}`;
+        imdbLink.target = '_blank';
+        imdbLink.textContent = imdbId;
+        metadataLinksDiv.appendChild(imdbLink);
+    }
+
+    if (tmdbId || imdbId) {
+        metadataLinksRow.style.display = 'flex';
+    }
+}
+
 // Display scan results
-function displayScanResult(result) {
+async function displayScanResult(result) {
+    scanResult = result;
+
+    // Check for saved metadata
+    if (result.fingerprint) {
+        try {
+            const metaResponse = await fetch(`/api/disc/metadata/${result.fingerprint}`);
+            if (metaResponse.ok) {
+                const metadata = await metaResponse.json();
+                if (metadata.title) {
+                    document.getElementById('disc-title').value = metadata.title;
+                }
+                if (metadata.year) {
+                    document.getElementById('disc-year').value = metadata.year;
+                }
+                if (metadata.tmdb_id) {
+                    window.selectedTMDBId = metadata.tmdb_id;
+                }
+                if (metadata.imdb_id) {
+                    window.selectedIMDBId = metadata.imdb_id;
+                }
+                // Show metadata links if we have IDs
+                if (metadata.tmdb_id || metadata.imdb_id) {
+                    showMetadataLinks(metadata.title, metadata.tmdb_id, metadata.imdb_id);
+                }
+            }
+        } catch (error) {
+            console.log('No saved metadata for disc');
+        }
+    }
+
     // Use textContent for text nodes to prevent XSS
     document.getElementById('disc-status-text').textContent = `${result.disc_name || 'Unknown'} (${result.disc_type || 'Unknown'})`;
 
@@ -451,8 +517,11 @@ function displayScanResult(result) {
     const infoSection = document.getElementById('disc-info-section');
     infoSection.style.display = 'block';
 
-    // Populate title (editable) - safe because it's setting a value property, not innerHTML
-    document.getElementById('disc-title').value = result.disc_name || '';
+    // Populate title only if not already set from saved metadata
+    const titleInput = document.getElementById('disc-title');
+    if (!titleInput.value) {
+        titleInput.value = result.disc_name || '';
+    }
 
     const tracksSection = document.getElementById('tracks-section');
     tracksSection.style.display = 'block';

@@ -389,6 +389,30 @@ async def update_disc_metadata(request: UpdateMetadataRequest):
     return {"updated": True}
 
 
+@router.get("/metadata/{fingerprint}")
+async def get_disc_metadata(fingerprint: str):
+    """Get disc metadata by fingerprint."""
+    from amphigory.api.disc_repository import get_db_path
+    import aiosqlite
+
+    async with aiosqlite.connect(get_db_path()) as db:
+        db.row_factory = aiosqlite.Row
+        cursor = await db.execute(
+            "SELECT tmdb_id, imdb_id, title, year FROM discs WHERE fingerprint = ?",
+            (fingerprint,)
+        )
+        row = await cursor.fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="Disc not found")
+
+        return {
+            "tmdb_id": row["tmdb_id"],
+            "imdb_id": row["imdb_id"],
+            "title": row["title"],
+            "year": row["year"]
+        }
+
+
 @router.get("/search-tmdb")
 async def search_tmdb(query: str, year: Optional[int] = None):
     """Search TMDB for movie matches."""
