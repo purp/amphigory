@@ -17,6 +17,10 @@ Items deferred to focus on getting to a fully functional system first.
 - [ ] "Process Selected Tracks" button CSS doesn't look disabled when disabled (verify and fix)
 - [x] Remove media type suffixes from filenames (e.g., `-featurette`, `-deleted`) since extras are organized into subdirectories
       * FIXED: Removed PLEX_SUFFIXES from naming.py and disc.html JavaScript - extras now just use track name
+- [ ] It would be nice to have a file browser to pick the output directory. 
+      * Perhaps treat it as if I were choosing a file for upload to launch the file browser
+      * If you can, allow me to select a folder
+      * If I can't pick folders, use the `dirname` of the file I choose
 
 We should include the size of the input source file in rip task responses to give us some data about how long is reasonable to have expected a rip to run.
 

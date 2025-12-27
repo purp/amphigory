@@ -1,6 +1,6 @@
 # Resume Interrupted Flows Design
 
-> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
+> ✅ **COMPLETED** - Implemented in commit 166afe4
 
 **Goal:** Allow users to resume processing of partially-processed discs without re-doing completed steps.
 
