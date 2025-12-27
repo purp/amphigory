@@ -437,14 +437,20 @@ async def get_failed_tasks() -> TaskListResponse:
 
     if failed_dir.exists():
         for task_file in failed_dir.glob("*.json"):
-            with open(task_file) as f:
-                data = json.load(f)
-            tasks.append(TaskStatusResponse(
-                id=data.get("task_id", task_file.stem),
-                type=data.get("type"),
-                status="failed",
-                error=data.get("error"),
-            ))
+            try:
+                with open(task_file) as f:
+                    data = json.load(f)
+                tasks.append(TaskStatusResponse(
+                    id=data.get("task_id", task_file.stem),
+                    type=data.get("type"),
+                    status="failed",
+                    started_at=data.get("started_at"),
+                    completed_at=data.get("completed_at"),
+                    error=data.get("error"),
+                ))
+            except (json.JSONDecodeError, IOError) as e:
+                logger.warning(f"Error reading failed task {task_file.name}: {e}")
+                continue
 
     return TaskListResponse(tasks=tasks)
 

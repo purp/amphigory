@@ -844,3 +844,48 @@ class TestFailedTasksAPI:
         response = client.delete(f"/api/tasks/failed/{encoded_id}")
         assert response.status_code == 200
         assert not task_file.exists()
+
+    def test_get_failed_tasks_handles_malformed_json(self, client, failed_tasks_dir):
+        """GET /api/tasks/failed gracefully handles malformed JSON files."""
+        # Create a valid task
+        valid_task = {
+            "task_id": "20251226T170000.000000-rip",
+            "type": "rip",
+            "status": "failed",
+            "error": {"message": "Valid error"}
+        }
+        with open(failed_tasks_dir / "20251226T170000.000000-rip.json", "w") as f:
+            json.dump(valid_task, f)
+
+        # Create a malformed JSON file
+        with open(failed_tasks_dir / "malformed-task.json", "w") as f:
+            f.write("{invalid json content")
+
+        # Should still return the valid task and not crash
+        response = client.get("/api/tasks/failed")
+        assert response.status_code == 200
+        data = response.json()
+        # Should have only the valid task, malformed one is skipped
+        assert len(data["tasks"]) == 1
+        assert data["tasks"][0]["id"] == "20251226T170000.000000-rip"
+
+    def test_get_failed_tasks_includes_timing_fields(self, client, failed_tasks_dir):
+        """GET /api/tasks/failed includes started_at and completed_at fields."""
+        task_data = {
+            "task_id": "20251226T180000.000000-rip",
+            "type": "rip",
+            "status": "failed",
+            "started_at": "2025-12-26T18:00:00.000000",
+            "completed_at": "2025-12-26T18:00:05.000000",
+            "error": {"message": "Some error"}
+        }
+        with open(failed_tasks_dir / "20251226T180000.000000-rip.json", "w") as f:
+            json.dump(task_data, f)
+
+        response = client.get("/api/tasks/failed")
+        assert response.status_code == 200
+        data = response.json()
+        assert len(data["tasks"]) == 1
+        task = data["tasks"][0]
+        assert task["started_at"] == "2025-12-26T18:00:00.000000"
+        assert task["completed_at"] == "2025-12-26T18:00:05.000000"
