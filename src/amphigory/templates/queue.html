@@ -44,6 +44,32 @@ function formatTime(dateStr) {
     return date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 }
 
+function formatDuration(seconds) {
+    if (!seconds) return '--';
+
+    if (seconds < 60) return `${seconds}s`;
+
+    const minutes = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+
+    if (minutes < 60) return `${minutes}m ${secs}s`;
+
+    const hours = Math.floor(minutes / 60);
+    const mins = minutes % 60;
+    return `${hours}h ${mins}m ${secs}s`;
+}
+
+function formatDateTime(dateStr) {
+    if (!dateStr) return '--';
+    const date = new Date(dateStr);
+    return date.toLocaleString([], {
+        month: 'short',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit'
+    });
+}
+
 function formatElapsed(startDateStr) {
     const start = new Date(startDateStr);
     const now = new Date();
@@ -162,15 +188,57 @@ function renderCompletedTasks() {
     // Show most recent first, limit to 10
     const recentTasks = tasks.completed.slice(0, 10);
 
-    container.innerHTML = recentTasks.map(task => `
-        <div class="task-item task-${task.status}">
-            <div class="task-header">
-                <span class="task-status status-${task.status}">${task.status}</span>
-                <span class="task-type">${task.type || 'task'}</span>
-                <span class="task-id">${task.id.substring(0, 8)}...</span>
+    container.innerHTML = recentTasks.map(task => {
+        const statusIcon = task.status === 'success' ? '&#10003;' : '&#10007;';
+        const outputDir = task.result?.destination?.directory || '';
+        const outputFile = task.result?.destination?.filename || '';
+        const errorMsg = task.error?.detail || task.error?.message || task.error || '';
+
+        let detailsHtml = `
+            <div class="detail-row"><span class="detail-label">Task ID:</span> ${task.id}</div>
+            <div class="detail-row"><span class="detail-label">Started:</span> ${formatDateTime(task.started_at)}</div>
+            <div class="detail-row"><span class="detail-label">Completed:</span> ${formatDateTime(task.completed_at)}</div>
+            <div class="detail-row"><span class="detail-label">Duration:</span> ${formatDuration(task.duration_seconds)}</div>
+        `;
+
+        if (task.status === 'failed' && errorMsg) {
+            detailsHtml += `<div class="detail-row detail-error"><span class="detail-label">Error:</span> ${errorMsg}</div>`;
+        } else if (task.type === 'rip' && (outputDir || outputFile)) {
+            if (outputDir) {
+                detailsHtml += `<div class="detail-row"><span class="detail-label">Output Dir:</span> ${outputDir}</div>`;
+            }
+            if (outputFile) {
+                detailsHtml += `<div class="detail-row"><span class="detail-label">Output File:</span> ${outputFile}</div>`;
+            }
+        }
+
+        return `
+            <div class="task-item task-${task.status}" onclick="toggleTaskDetails('${task.id}')">
+                <div class="task-header">
+                    <span class="task-status status-${task.status}">${statusIcon} ${task.status}</span>
+                    <span class="task-type">${task.type || 'task'}</span>
+                    <span class="task-id">${task.id.substring(0, 12)}...</span>
+                    <span class="task-expand" id="expand-${task.id}">&#9660;</span>
+                </div>
+                <div class="task-details" id="details-${task.id}" style="display: none;">
+                    ${detailsHtml}
+                </div>
             </div>
-        </div>
-    `).join('');
+        `;
+    }).join('');
+}
+
+function toggleTaskDetails(taskId) {
+    const details = document.getElementById(`details-${taskId}`);
+    const expand = document.getElementById(`expand-${taskId}`);
+
+    if (details.style.display === 'none') {
+        details.style.display = 'block';
+        expand.innerHTML = '&#9650;';
+    } else {
+        details.style.display = 'none';
+        expand.innerHTML = '&#9660;';
+    }
 }
 
 function toggleCompleted() {
