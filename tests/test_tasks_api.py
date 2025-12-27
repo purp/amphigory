@@ -659,3 +659,59 @@ class TestCreateProcessTasks:
 
         # Transcode input should match rip output
         assert transcode_task["input"] == rip_task["output"]
+
+    def test_process_multiple_tracks_creates_pairs(self, client, tmp_path, monkeypatch):
+        """Test that processing multiple tracks creates rip+transcode pairs for each."""
+        monkeypatch.setenv("AMPHIGORY_DATA", str(tmp_path))
+        tasks_dir = tmp_path / "tasks"
+        (tasks_dir / "queued").mkdir(parents=True, exist_ok=True)
+        (tasks_dir / "in_progress").mkdir(parents=True, exist_ok=True)
+        (tasks_dir / "complete").mkdir(parents=True, exist_ok=True)
+        (tasks_dir / "failed").mkdir(parents=True, exist_ok=True)
+
+        response = client.post("/api/tasks/process", json={
+            "tracks": [
+                {"track_number": 1, "output_filename": "Track1.mkv"},
+                {"track_number": 2, "output_filename": "Track2.mkv"},
+            ],
+            "disc_fingerprint": "abc123",
+        })
+
+        assert response.status_code == 201
+        data = response.json()
+        assert len(data["tasks"]) == 4  # 2 tracks * 2 tasks each
+
+        # Should have 2 rip tasks and 2 transcode tasks
+        rip_tasks = [t for t in data["tasks"] if t["type"] == "rip"]
+        transcode_tasks = [t for t in data["tasks"] if t["type"] == "transcode"]
+        assert len(rip_tasks) == 2
+        assert len(transcode_tasks) == 2
+
+    def test_process_writes_task_files(self, client, tmp_path, monkeypatch):
+        """Test that task JSON files are written to queued/ directory."""
+        monkeypatch.setenv("AMPHIGORY_DATA", str(tmp_path))
+        tasks_dir = tmp_path / "tasks"
+        (tasks_dir / "queued").mkdir(parents=True, exist_ok=True)
+        (tasks_dir / "in_progress").mkdir(parents=True, exist_ok=True)
+        (tasks_dir / "complete").mkdir(parents=True, exist_ok=True)
+        (tasks_dir / "failed").mkdir(parents=True, exist_ok=True)
+
+        response = client.post("/api/tasks/process", json={
+            "tracks": [{"track_number": 1, "output_filename": "Movie.mkv"}],
+            "disc_fingerprint": "test-fingerprint",
+        })
+
+        assert response.status_code == 201
+
+        # Check files were written
+        queued_files = list((tasks_dir / "queued").glob("*.json"))
+        assert len(queued_files) == 2
+
+        # Check tasks.json was updated
+        tasks_json = tasks_dir / "tasks.json"
+        assert tasks_json.exists()
+        with open(tasks_json) as f:
+            task_order = json.load(f)
+        assert len(task_order) == 2
+        assert task_order[0].endswith("-rip")
+        assert task_order[1].endswith("-transcode")
