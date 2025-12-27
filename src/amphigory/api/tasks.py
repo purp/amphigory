@@ -62,7 +62,11 @@ class TaskStatusResponse(BaseModel):
     id: str
     type: Optional[str] = None
     status: str
+    started_at: Optional[str] = None
+    completed_at: Optional[str] = None
+    duration_seconds: Optional[int] = None
     result: Optional[dict] = None
+    error: Optional[dict] = None
 
 
 class TaskListResponse(BaseModel):
@@ -294,6 +298,11 @@ async def list_tasks() -> TaskListResponse:
                 id=data.get("task_id", task_file.stem),
                 type=data.get("type"),
                 status=data.get("status", "completed"),
+                started_at=data.get("started_at"),
+                completed_at=data.get("completed_at"),
+                duration_seconds=data.get("duration_seconds"),
+                result=data.get("result"),
+                error=data.get("error"),
             ))
 
     return TaskListResponse(tasks=tasks)

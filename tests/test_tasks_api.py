@@ -348,3 +348,72 @@ class TestCleanupOldTasks:
             entries = json.load(f)
         assert len(entries) == 1
         assert entries[0] == response.json()["task_id"]
+
+
+class TestListTasksFullData:
+    """Tests for full task data in list response."""
+
+    def test_completed_task_includes_timing_fields(self, client, tasks_dir):
+        """Completed tasks include started_at, completed_at, duration_seconds."""
+        complete_dir = tasks_dir / "complete"
+        complete_dir.mkdir(exist_ok=True)
+
+        task_data = {
+            "task_id": "20251225T120000.000000-rip",
+            "type": "rip",
+            "status": "success",
+            "started_at": "2025-12-25T12:00:00.000000",
+            "completed_at": "2025-12-25T12:45:32.000000",
+            "duration_seconds": 2732,
+            "result": {
+                "destination": {
+                    "directory": "/media/ripped",
+                    "filename": "Movie.mkv"
+                }
+            }
+        }
+        with open(complete_dir / "20251225T120000.000000-rip.json", "w") as f:
+            json.dump(task_data, f)
+
+        response = client.get("/api/tasks")
+        assert response.status_code == 200
+
+        data = response.json()
+        completed = [t for t in data["tasks"] if t["status"] == "success"]
+        assert len(completed) >= 1
+
+        task = completed[0]
+        assert task["started_at"] == "2025-12-25T12:00:00.000000"
+        assert task["completed_at"] == "2025-12-25T12:45:32.000000"
+        assert task["duration_seconds"] == 2732
+        assert task["result"]["destination"]["filename"] == "Movie.mkv"
+        assert task["result"]["destination"]["directory"] == "/media/ripped"
+
+    def test_failed_task_includes_error(self, client, tasks_dir):
+        """Failed tasks include error details."""
+        complete_dir = tasks_dir / "complete"
+        complete_dir.mkdir(exist_ok=True)
+
+        task_data = {
+            "task_id": "20251225T130000.000000-rip",
+            "type": "rip",
+            "status": "failed",
+            "started_at": "2025-12-25T13:00:00.000000",
+            "completed_at": "2025-12-25T13:00:01.000000",
+            "duration_seconds": 1,
+            "error": {
+                "code": "IO_ERROR",
+                "message": "Read-only file system",
+                "detail": "[Errno 30] Read-only file system: '/media'"
+            }
+        }
+        with open(complete_dir / "20251225T130000.000000-rip.json", "w") as f:
+            json.dump(task_data, f)
+
+        response = client.get("/api/tasks")
+        data = response.json()
+
+        failed = [t for t in data["tasks"] if t["status"] == "failed"]
+        assert len(failed) >= 1
+        assert "error" in failed[0]
+        assert failed[0]["error"]["detail"] == "[Errno 30] Read-only file system: '/media'"
