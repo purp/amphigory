@@ -92,10 +92,18 @@ def _calculate_score(track: ScannedTrack) -> float:
     return score
 
 
-def _classify_extra(track: ScannedTrack) -> str:
-    """Classify non-main feature tracks by duration.
+def _classify_extra(
+    track: ScannedTrack,
+    main_duration: int = 0,
+    main_size: int = 0
+) -> str:
+    """Classify non-main feature tracks by duration and similarity to main.
 
-    Duration ranges:
+    A track is classified as 'feature' (alternate version) if:
+    - Duration is within 10% of main feature AND
+    - Size is within 20% of main feature
+
+    Otherwise, duration ranges:
     - 90-150 seconds: trailers
     - < 90 seconds: other
     - 300-3600 seconds: featurettes
@@ -103,11 +111,22 @@ def _classify_extra(track: ScannedTrack) -> str:
 
     Args:
         track: The track to classify
+        main_duration: Duration of main feature in seconds (for feature detection)
+        main_size: Size of main feature in bytes (for feature detection)
 
     Returns:
         Classification string
     """
     duration_seconds = _parse_duration_to_seconds(track.duration)
+
+    # Check if this looks like an alternate version of the main feature
+    if main_duration > 0 and main_size > 0:
+        duration_diff = abs(duration_seconds - main_duration) / main_duration if main_duration else 1.0
+        size_diff = abs(track.size_bytes - main_size) / main_size if main_size else 1.0
+
+        # Within 10% duration and 20% size = likely an alternate feature
+        if duration_diff <= 0.10 and size_diff <= 0.20:
+            return "feature"
 
     if duration_seconds < 90:
         return "other"
@@ -323,6 +342,13 @@ def classify_tracks(tracks: List[ScannedTrack]) -> Dict[int, ClassifiedTrack]:
         else:
             confidence = "low"
 
+    # Get main feature duration and size for feature detection
+    main_duration = 0
+    main_size = 0
+    if main_track is not None:
+        main_duration = _parse_duration_to_seconds(main_track.duration)
+        main_size = main_track.size_bytes
+
     # Build classification results
     result = {}
     for track, score in scored_tracks:
@@ -330,8 +356,9 @@ def classify_tracks(tracks: List[ScannedTrack]) -> Dict[int, ClassifiedTrack]:
             classification = "main_feature"
             track_confidence = confidence
         else:
-            classification = _classify_extra(track)
-            track_confidence = "high"  # Extras are classified by clear duration rules
+            classification = _classify_extra(track, main_duration, main_size)
+            # Features (alternate versions) get medium confidence since detection is heuristic
+            track_confidence = "medium" if classification == "feature" else "high"
 
         result[track.number] = ClassifiedTrack(
             track=track,

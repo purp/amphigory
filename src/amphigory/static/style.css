@@ -577,11 +577,13 @@ body {
 
 .col-select { width: 40px; }
 .col-track { width: 50px; }
-.col-duration { width: 100px; }
-.col-size { width: 80px; }
-.col-resolution { width: 100px; }
-.col-preset { width: 200px; }
-.col-audio, .col-subs { width: 60px; text-align: center; }
+.col-duration { width: 80px; }
+.col-size { width: 70px; }
+.col-resolution { width: 90px; }
+.col-preset { width: 130px; }
+.col-type { width: 120px; }
+.col-name { min-width: 200px; }
+.col-audio, .col-subs { width: 50px; text-align: center; }
 
 .track-type {
     font-size: 0.75rem;
@@ -593,6 +595,11 @@ body {
 .type-main_feature {
     background: #dbeafe;
     color: #1e40af;
+}
+
+.type-feature {
+    background: #e0e7ff;
+    color: #3730a3;
 }
 
 .type-trailers {

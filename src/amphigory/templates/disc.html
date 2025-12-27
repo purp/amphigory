@@ -88,6 +88,9 @@
             </div>
 
             <div class="form-actions">
+                <button type="button" class="btn btn-secondary" id="save-tracks-btn" onclick="saveTrackInfo()" disabled>
+                    Save Track Info
+                </button>
                 <button type="submit" class="btn btn-primary" id="rip-button" disabled>
                     Process Selected Tracks
                 </button>
@@ -145,6 +148,11 @@ function generateTrackFilename(trackType, movieTitle, year, trackName, language)
         } else {
             return `${sanitizedTitle} (${year}).mkv`;
         }
+    }
+
+    // Feature (alternate version) naming: use the track name which includes {edition-alternate N}
+    if (trackType === 'feature') {
+        return `${sanitizedTrackName}.mkv`;
     }
 
     // Extras naming: "Track Name.mkv" (no suffix needed since extras go in subdirectories)
@@ -205,7 +213,11 @@ function populatePresetDropdown(selectElement, trackResolution) {
 
     selectElement.innerHTML = presetData.presets.map(preset => {
         const selected = preset.name === activePreset ? ' selected' : '';
-        return `<option value="${escapeHtml(preset.name)}"${selected}>${escapeHtml(preset.name)}</option>`;
+        // Abbreviate: take part before hyphen, trim whitespace
+        const abbrev = preset.name.includes(' - ')
+            ? preset.name.split(' - ')[0].trim()
+            : preset.name;
+        return `<option value="${escapeHtml(preset.name)}"${selected}>${escapeHtml(abbrev)}</option>`;
     }).join('');
 }
 
@@ -310,7 +322,8 @@ async function checkDiscStatus() {
                     if (discInfo.id) {
                         // Known disc - auto-load from database
                         const fingerprint = discInfo.fingerprint;
-                        statusText.textContent = `Known disc: ${discInfo.title || 'Unknown'}`;
+                        const fpShort = fingerprint ? ` (${fingerprint.substring(0, 7)})` : '';
+                        statusText.textContent = `Known disc: ${discInfo.title || 'Unknown'}${fpShort}`;
                         const scannedDate = discInfo.scanned_at ? new Date(discInfo.scanned_at).toLocaleDateString() : 'previously';
                         scanSection.innerHTML = `
                             <p class="text-muted">Previously scanned on ${scannedDate}</p>
@@ -404,6 +417,24 @@ async function loadFromDatabase(fingerprint) {
             showMetadataLinks(disc.title, disc.tmdb_id, disc.imdb_id);
         }
 
+        // Build scanResult-compatible structure for setTrackNames() and other functions
+        scanResult = {
+            fingerprint: disc.fingerprint,
+            disc_name: disc.title,
+            disc_type: disc.disc_type,
+            tracks: tracks.map(t => ({
+                number: t.track_number,
+                duration: formatDuration(t.duration_seconds),
+                duration_seconds: t.duration_seconds,
+                size_bytes: t.size_bytes,
+                classification: t.track_type,
+                confidence: t.classification_confidence,
+                resolution: t.resolution,
+                audio_streams: t.audio_tracks || [],
+                subtitle_streams: t.subtitle_tracks || [],
+            }))
+        };
+
         // Show disc info section
         document.getElementById('disc-info-section').style.display = 'block';
 
@@ -425,6 +456,15 @@ async function loadFromDatabase(fingerprint) {
 async function displayTracksFromDatabase(tracks) {
     const tbody = document.getElementById('tracks-body');
     tbody.innerHTML = '';
+
+    // Sort tracks: main_feature first, then by duration descending
+    tracks.sort((a, b) => {
+        // Main features first
+        if (a.track_type === 'main_feature' && b.track_type !== 'main_feature') return -1;
+        if (b.track_type === 'main_feature' && a.track_type !== 'main_feature') return 1;
+        // Then by duration descending
+        return (b.duration_seconds || 0) - (a.duration_seconds || 0);
+    });
 
     // Verify file existence for each track in parallel
     const verificationPromises = tracks.map(async (track) => {
@@ -472,8 +512,8 @@ async function displayTracksFromDatabase(tracks) {
 
     // After rendering tracks, populate preset dropdowns
     document.querySelectorAll('.preset-select').forEach((select) => {
-        const trackIndex = parseInt(select.dataset.trackIndex);
-        const track = tracks[trackIndex];
+        const trackId = parseInt(select.dataset.trackId);
+        const track = tracks.find(t => t.id === trackId);
         if (track) {
             populatePresetDropdown(select, track.resolution);
             // If track has a saved preset, select it
@@ -484,6 +524,7 @@ async function displayTracksFromDatabase(tracks) {
     });
 
     updateSelectedCount();
+    enableSaveTracksButton();
 }
 
 // Create a track row from database track data
@@ -522,7 +563,7 @@ function createTrackRowFromDb(track, verification, shouldSelect, showReset) {
         <td class="col-size">${formatSize(track.size_bytes)}</td>
         <td class="col-resolution">${escapeHtml(track.resolution || '-')}</td>
         <td class="col-preset">
-            <select class="preset-select" data-track-index="${track.track_number - 1}" data-track-id="${track.id}">
+            <select class="preset-select" data-track-id="${track.id}">
                 <!-- Options populated by displayTracksFromDatabase -->
             </select>
         </td>
@@ -539,12 +580,12 @@ function createTrackRowFromDb(track, verification, shouldSelect, showReset) {
                    value="${escapeHtml(track.track_name || '')}"
                    data-track-id="${track.id}">
         </td>
-        <td class="col-audio">${track.audio_tracks || 0}</td>
-        <td class="col-subs">${track.subtitle_tracks || 0}</td>
+        <td class="col-audio">${Array.isArray(track.audio_tracks) ? track.audio_tracks.length : (track.audio_tracks || 0)}</td>
+        <td class="col-subs">${Array.isArray(track.subtitle_tracks) ? track.subtitle_tracks.length : (track.subtitle_tracks || 0)}</td>
         <td class="track-status">
-            <span class="status-icon ${rippedStatus}" title="Ripped">&#128191;</span>
-            <span class="status-icon ${transcodedStatus}" title="Transcoded">&#127916;</span>
-            <span class="status-icon ${insertedStatus}" title="Inserted">&#128250;</span>
+            <span class="status-icon ${rippedStatus}" title="${getStatusTitle('ripped', rippedStatus)}">&#128191;</span>
+            <span class="status-icon ${transcodedStatus}" title="${getStatusTitle('transcoded', transcodedStatus)}">&#127916;</span>
+            <span class="status-icon ${insertedStatus}" title="${getStatusTitle('inserted', insertedStatus)}">&#128250;</span>
             ${resetLinkHtml}
         </td>
     `;
@@ -561,6 +602,16 @@ function getStatusClass(path, exists) {
         return 'done';     // Path is set and file exists
     }
     return 'missing';      // Path is set but file doesn't exist (data loss)
+}
+
+// Get hover title text for status icon
+function getStatusTitle(statusType, statusClass) {
+    const labels = {
+        ripped: { pending: 'Not ripped', done: 'Ripped', missing: 'Ripped file missing' },
+        transcoded: { pending: 'Not transcoded', done: 'Transcoded', missing: 'Transcoded file missing' },
+        inserted: { pending: 'Not inserted', done: 'Inserted', missing: 'Inserted file missing' },
+    };
+    return labels[statusType]?.[statusClass] || statusType;
 }
 
 // Update track classification for database-loaded tracks
@@ -809,8 +860,8 @@ async function displayScanResult(result) {
                        placeholder="${escapeHtml(getDefaultTrackName(track))}"
                        value="${escapeHtml(track.name || '')}">
             </td>
-            <td class="col-audio">${track.audio_tracks || track.audio_streams?.length || 0}</td>
-            <td class="col-subs">${track.subtitle_tracks || track.subtitle_streams?.length || 0}</td>
+            <td class="col-audio">${Array.isArray(track.audio_streams) ? track.audio_streams.length : (track.audio_tracks || 0)}</td>
+            <td class="col-subs">${Array.isArray(track.subtitle_streams) ? track.subtitle_streams.length : (track.subtitle_tracks || 0)}</td>
             <td class="track-status">
                 <span class="status-icon pending" title="Ripped">&#128191;</span>
                 <span class="status-icon pending" title="Transcoded">&#127916;</span>
@@ -845,6 +896,7 @@ function formatDuration(seconds) {
 function formatClassification(classification) {
     const labels = {
         'main_feature': 'Main Feature',
+        'feature': 'Feature',
         'behind_the_scenes': 'Behind The Scenes',
         'deleted_scenes': 'Deleted Scene',
         'featurettes': 'Featurette',
@@ -861,6 +913,7 @@ function formatClassification(classification) {
 function getTrackTypeOptions(currentClassification) {
     const types = [
         'main_feature',
+        'feature',
         'behind_the_scenes',
         'deleted_scenes',
         'featurettes',
@@ -930,6 +983,8 @@ function getDefaultTrackName(track) {
 
     if (classification === 'main_feature') {
         return 'Main Feature';
+    } else if (classification === 'feature') {
+        return 'Feature';
     } else if (classification === 'trailers') {
         return 'Trailer';
     } else if (classification === 'featurettes') {
@@ -1377,10 +1432,10 @@ function setTrackNames() {
             if (count > 1) {
                 trackName += ` - Part ${count}`;
             }
-        } else if (track.duration && mainFeatureDurations.has(track.duration)) {
-            // Alternate version: same duration as a main feature
+        } else if (classification === 'feature' || (track.duration && mainFeatureDurations.has(track.duration))) {
+            // Feature or alternate version: use Plex-compatible edition tag
             alternateVersionCount++;
-            trackName = `${titleWithoutYear} (${year})${imdbSuffix} - Version ${alternateVersionCount}`;
+            trackName = `${titleWithoutYear} (${year})${imdbSuffix} {edition-alternate ${alternateVersionCount}}`;
         } else {
             // Extras: use getDefaultTrackName() as base, then add count
             const baseName = getDefaultTrackName(track);
@@ -1432,7 +1487,7 @@ async function loadConfig() {
 
 // Save disc info to database
 async function saveDiscInfo() {
-    const fingerprint = scanResult?.fingerprint;
+    const fingerprint = scanResult?.fingerprint || window.knownDiscInfo?.fingerprint;
     if (!fingerprint) {
         alert('No disc fingerprint available');
         return;
@@ -1482,6 +1537,66 @@ function enableSaveButton() {
     if (btn) btn.disabled = false;
 }
 
+function enableSaveTracksButton() {
+    const btn = document.getElementById('save-tracks-btn');
+    if (btn) btn.disabled = false;
+}
+
+// Save track info (names, types, presets) to database
+async function saveTrackInfo() {
+    if (!window.currentDiscId) {
+        alert('No disc loaded');
+        return;
+    }
+
+    const tracksData = [];
+    document.querySelectorAll('.track-row').forEach(row => {
+        const trackId = row.dataset.trackId;
+        if (trackId) {
+            tracksData.push({
+                id: parseInt(trackId),
+                track_name: row.querySelector('.track-name-input')?.value || null,
+                track_type: row.querySelector('.track-type-select')?.value || null,
+                preset_name: row.querySelector('.preset-select')?.value || null,
+            });
+        }
+    });
+
+    if (tracksData.length === 0) {
+        alert('No tracks to save');
+        return;
+    }
+
+    const btn = document.getElementById('save-tracks-btn');
+    btn.disabled = true;
+    btn.textContent = 'Saving...';
+
+    try {
+        const response = await fetch(`/api/disc/${window.currentDiscId}/save`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ disc: {}, tracks: tracksData }),
+        });
+
+        if (response.ok) {
+            btn.textContent = 'Saved!';
+            setTimeout(() => {
+                btn.textContent = 'Save Track Info';
+                btn.disabled = false;
+            }, 2000);
+        } else {
+            const error = await response.json();
+            alert('Failed to save: ' + (error.detail || 'Unknown error'));
+            btn.textContent = 'Save Track Info';
+            btn.disabled = false;
+        }
+    } catch (error) {
+        alert('Failed to save: ' + error.message);
+        btn.textContent = 'Save Track Info';
+        btn.disabled = false;
+    }
+}
+
 // Initialize on page load
 document.addEventListener('DOMContentLoaded', async () => {
     // Load presets first, then populate dropdowns if scan is already displayed
@@ -1494,6 +1609,16 @@ document.addEventListener('DOMContentLoaded', async () => {
 
 // Listen for WebSocket disc events
 document.addEventListener('amphigory:disc_event', (e) => {
+    const eventType = e.detail?.event;
+    if (eventType === 'eject') {
+        // Immediately clear UI on eject
+        scanResult = null;
+        window.knownDiscInfo = null;
+        window.currentDiscId = null;
+        document.getElementById('tracks-body').innerHTML = '';
+        document.getElementById('rip-button').disabled = true;
+        updateSelectedCount();
+    }
     checkDiscStatus();
 });
 </script>
