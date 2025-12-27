@@ -1075,7 +1075,7 @@ async function submitRipTasks(event) {
     }
 
     // Save disc metadata first (if we have TMDB/IMDB data) - legacy path for fingerprint-based saves
-    const fingerprint = scanResult?.fingerprint;
+    const fingerprint = scanResult?.fingerprint || window.knownDiscInfo?.fingerprint;
     const title = document.getElementById('disc-title').value.trim();
     const year = document.getElementById('disc-year').value.trim();
 
@@ -1105,7 +1105,7 @@ async function submitRipTasks(event) {
     const discYear = document.getElementById('disc-year').value;
 
     if (selectedTracks.length === 0) {
-        alert('Please select at least one track to rip.');
+        alert('Please select at least one track to process.');
         return;
     }
 
@@ -1119,98 +1119,73 @@ async function submitRipTasks(event) {
     ripButton.textContent = 'Creating tasks...';
 
     try {
-        let tasksCreated = 0;
-        let tasksSkipped = 0;
+        // Build tracks array for the process endpoint
+        const tracksToProcess = [];
 
-        // Task 12: For each selected track, determine what processing is needed
         for (const trackNumber of selectedTracks) {
             const row = document.querySelector(`tr.track-row input[value="${trackNumber}"]`)?.closest('tr');
             if (!row) continue;
 
-            const trackId = row.dataset.trackId;
             const track = scanResult?.tracks?.find(t => (t.number || scanResult.tracks.indexOf(t)) === trackNumber);
+            const trackNameInput = document.querySelector(`input[name="track_name_${trackNumber}"]`);
+            const trackName = trackNameInput?.value || getDefaultTrackName(track);
+            const presetSelect = row.querySelector('.preset-select');
 
-            // Check what processing is needed
-            let needsRip = true;
-            let needsTranscode = true;
-            let needsInsert = true;
-
-            if (trackId) {
-                try {
-                    const verifyResponse = await fetch(`/api/tracks/${trackId}/verify-files`);
-                    if (verifyResponse.ok) {
-                        const v = await verifyResponse.json();
-
-                        // Work backwards from end state
-                        if (v.inserted_exists) {
-                            // Fully done - skip everything
-                            needsRip = false;
-                            needsTranscode = false;
-                            needsInsert = false;
-                            console.log(`Track ${trackNumber} already fully processed (inserted), skipping`);
-                        } else if (v.transcoded_exists) {
-                            // Just needs insert
-                            needsRip = false;
-                            needsTranscode = false;
-                            console.log(`Track ${trackNumber} already transcoded, skipping rip and transcode`);
-                        } else if (v.ripped_exists) {
-                            // Needs transcode and insert
-                            needsRip = false;
-                            console.log(`Track ${trackNumber} already ripped, skipping rip task`);
-                        }
-                    }
-                } catch (e) {
-                    console.error('Error checking track status:', e);
-                }
+            let trackType = track?.classification || 'other';
+            if (trackType === 'extra') {
+                trackType = 'other';
             }
 
-            // Only create rip task if needed
-            if (needsRip) {
-                // Get track name from input field
-                const trackNameInput = document.querySelector(`input[name="track_name_${trackNumber}"]`);
-                const trackName = trackNameInput?.value || getDefaultTrackName(track);
+            // Generate Plex-compatible filename
+            const outputFilename = generateTrackFilename(
+                trackType,
+                discTitle,
+                parseInt(discYear),
+                trackName,
+                'en'
+            );
 
-                // Get classification (convert extra/trailer/menu to proper type)
-                let trackType = track?.classification || 'other';
-                // Map generic 'extra' to 'other' for Plex naming
-                if (trackType === 'extra') {
-                    trackType = 'other';
-                }
-
-                // Generate Plex-compatible filename
-                // For now, assume language is 'en' - in future this could be configurable
-                const outputFilename = generateTrackFilename(
-                    trackType,
-                    discTitle,
-                    parseInt(discYear),
-                    trackName,
-                    'en'
-                );
-
-                await fetch('/api/tasks/rip', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        track_number: trackNumber,
-                        output_filename: outputFilename,
-                        output_directory: outputDir,
-                        disc_title: discTitle,
-                        disc_year: parseInt(discYear),
-                    }),
-                });
-                tasksCreated++;
-            } else {
-                tasksSkipped++;
-            }
+            tracksToProcess.push({
+                track_number: trackNumber,
+                output_filename: outputFilename,
+                output_directory: outputDir ? outputDir + '/' : null,
+                preset: presetSelect?.value || null,
+                expected_size_bytes: track?.size_bytes || null,
+                expected_duration: track?.duration || null,
+            });
         }
 
-        console.log(`Processing complete: ${tasksCreated} rip tasks created, ${tasksSkipped} tracks skipped (already processed)`);
+        // Verify we have a fingerprint
+        if (!fingerprint) {
+            alert('No disc fingerprint available. Please scan the disc first.');
+            ripButton.disabled = false;
+            ripButton.textContent = 'Process Selected Tracks';
+            return;
+        }
+
+        // Call the process endpoint
+        const response = await fetch('/api/tasks/process', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                tracks: tracksToProcess,
+                disc_fingerprint: fingerprint,
+            }),
+        });
+
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || 'Failed to create tasks');
+        }
+
+        const data = await response.json();
+        console.log(`Created ${data.tasks.length} tasks (${tracksToProcess.length} tracks × 2 tasks each)`);
 
         // Redirect to queue page
         window.location.href = '/queue';
     } catch (error) {
-        console.error('Error creating rip tasks:', error);
-        alert('Error creating rip tasks. Please try again.');
+        console.error('Error creating tasks:', error);
+        alert('Error creating tasks: ' + error.message);
         ripButton.disabled = false;
         ripButton.textContent = 'Process Selected Tracks';
     }
