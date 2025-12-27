@@ -428,6 +428,44 @@ async def process_tracks(request: ProcessTracksRequest) -> ProcessTracksResponse
     return ProcessTracksResponse(tasks=created_tasks)
 
 
+@router.get("/failed", response_model=TaskListResponse)
+async def get_failed_tasks() -> TaskListResponse:
+    """Get all failed tasks from the failed/ directory."""
+    tasks_dir = get_tasks_dir()
+    failed_dir = tasks_dir / "failed"
+    tasks = []
+
+    if failed_dir.exists():
+        for task_file in failed_dir.glob("*.json"):
+            with open(task_file) as f:
+                data = json.load(f)
+            tasks.append(TaskStatusResponse(
+                id=data.get("task_id", task_file.stem),
+                type=data.get("type"),
+                status="failed",
+                error=data.get("error"),
+            ))
+
+    return TaskListResponse(tasks=tasks)
+
+
+@router.delete("/failed/{task_id}")
+async def dismiss_failed_task(task_id: str):
+    """Remove a task from the failed/ directory."""
+    # Validate task_id to prevent path traversal
+    if "/" in task_id or "\\" in task_id or ".." in task_id:
+        raise HTTPException(status_code=400, detail="Invalid task ID")
+
+    tasks_dir = get_tasks_dir()
+    failed_file = tasks_dir / "failed" / f"{task_id}.json"
+
+    if not failed_file.exists():
+        raise HTTPException(status_code=404, detail="Failed task not found")
+
+    failed_file.unlink()
+    return {"status": "dismissed"}
+
+
 @router.get("/{task_id}", response_model=TaskStatusResponse)
 async def get_task_status(task_id: str) -> TaskStatusResponse:
     """Get the status of a task.

@@ -33,11 +33,79 @@
             <p class="text-muted">No completed tasks</p>
         </div>
     </section>
+
+    <section class="failed-tasks card" id="failed-tasks-section" style="display: none;">
+        <div class="section-header">
+            <h2>Failed Tasks</h2>
+        </div>
+        <div id="failed-tasks">
+            <p class="text-muted">No failed tasks</p>
+        </div>
+    </section>
 </div>
 
 <script>
 let tasks = { queued: [], in_progress: [], completed: [] };
 let elapsedInterval = null;
+let failedTasks = [];
+
+async function loadFailedTasks() {
+    try {
+        const response = await fetch('/api/tasks/failed');
+        const data = await response.json();
+        failedTasks = data.tasks;
+        renderFailedTasks();
+    } catch (error) {
+        console.error('Error loading failed tasks:', error);
+    }
+}
+
+function renderFailedTasks() {
+    const section = document.getElementById('failed-tasks-section');
+    const container = document.getElementById('failed-tasks');
+
+    if (failedTasks.length === 0) {
+        section.style.display = 'none';
+        return;
+    }
+
+    section.style.display = 'block';
+    container.innerHTML = failedTasks.map(task => `
+        <div class="task-item task-failed">
+            <div class="task-header">
+                <span class="task-type">${task.type || 'task'}</span>
+                <span class="task-id" title="${task.id}">${task.id.substring(0, 15)}...</span>
+            </div>
+            <div class="task-error">
+                ${task.error?.message || task.error?.detail || 'Unknown error'}
+            </div>
+            <div class="task-actions">
+                <button class="btn btn-small btn-secondary" onclick="dismissFailedTask('${task.id}')">
+                    Dismiss
+                </button>
+            </div>
+        </div>
+    `).join('');
+}
+
+async function dismissFailedTask(taskId) {
+    if (!confirm('Dismiss this failed task?')) return;
+
+    try {
+        const response = await fetch(`/api/tasks/failed/${encodeURIComponent(taskId)}`, {
+            method: 'DELETE'
+        });
+        if (response.ok) {
+            loadFailedTasks();
+        } else {
+            const error = await response.json();
+            alert('Failed to dismiss task: ' + (error.detail || 'Unknown error'));
+        }
+    } catch (error) {
+        console.error('Error dismissing task:', error);
+        alert('Error dismissing task');
+    }
+}
 
 function formatTime(dateStr) {
     const date = new Date(dateStr);
@@ -269,7 +337,9 @@ document.addEventListener('amphigory:progress', (e) => {
 // Refresh periodically
 function startPolling() {
     loadTasks();
+    loadFailedTasks();
     setInterval(loadTasks, 5000);
+    setInterval(loadFailedTasks, 10000);
 }
 
 document.addEventListener('DOMContentLoaded', startPolling);
