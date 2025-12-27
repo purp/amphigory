@@ -1,5 +1,7 @@
 # UI Improvements Implementation Plan
 
+**Status:** ✅ COMPLETED (2025-12-26)
+
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
 **Goal:** Persist TMDB/IMDB metadata, fix progress bar, add task timing and completed task details.
