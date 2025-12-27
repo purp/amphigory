@@ -8,7 +8,6 @@ from typing import Callable, Any
 from amphigory.makemkv import DiscInfo, Track, scan_disc, classify_tracks
 from amphigory.services.ripper import RipperService, RipProgress
 from amphigory.services.transcoder import TranscoderService, TranscodeProgress
-from amphigory.jobs import JobQueue, JobType, JobStatus
 from amphigory.presets import PresetManager
 from amphigory.database import Database
 

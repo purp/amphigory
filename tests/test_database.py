@@ -43,7 +43,6 @@ async def test_database_initialization(temp_db_path):
     assert "discs" in tables
     assert "tracks" in tables
     assert "presets" in tables
-    assert "jobs" in tables
 
     await db.close()
 

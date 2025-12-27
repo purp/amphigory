@@ -123,24 +123,9 @@ CREATE TABLE IF NOT EXISTS presets (
     UNIQUE(name, version)
 );
 
--- Job queue for ripping and transcoding
-CREATE TABLE IF NOT EXISTS jobs (
-    id INTEGER PRIMARY KEY,
-    track_id INTEGER REFERENCES tracks(id),
-    job_type TEXT,
-    status TEXT DEFAULT 'queued',
-    progress INTEGER DEFAULT 0,
-    priority INTEGER DEFAULT 0,
-    started_at TIMESTAMP,
-    completed_at TIMESTAMP,
-    error_message TEXT
-);
-
 -- Create indexes for common queries
 CREATE INDEX IF NOT EXISTS idx_tracks_disc_id ON tracks(disc_id);
 CREATE INDEX IF NOT EXISTS idx_tracks_status ON tracks(status);
-CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status);
-CREATE INDEX IF NOT EXISTS idx_jobs_track_id ON jobs(track_id);
 """
 
 
