@@ -541,3 +541,16 @@ class TestScanDataMigration:
             assert row["count"] == 2
 
             await db3.close()
+
+
+class TestInsertedPathMigration:
+    """Test inserted_path column migration."""
+
+    @pytest.mark.asyncio
+    async def test_tracks_table_has_inserted_path_column(self, db):
+        """Tracks table should have inserted_path column after migration."""
+        async with db.connection() as conn:
+            cursor = await conn.execute("PRAGMA table_info(tracks)")
+            columns = {row[1] for row in await cursor.fetchall()}
+
+        assert "inserted_path" in columns

@@ -106,7 +106,9 @@ CREATE TABLE IF NOT EXISTS tracks (
     -- MakeMKV internal track name (e.g., "B1_t04.mkv")
     makemkv_name TEXT,
     -- Numeric classification confidence (0.0-1.0)
-    classification_score REAL
+    classification_score REAL,
+    -- Final path after insertion into Plex library
+    inserted_path TEXT
 );
 
 -- Handbrake presets with versioning
@@ -231,6 +233,10 @@ class Database:
             await conn.execute("ALTER TABLE tracks ADD COLUMN makemkv_name TEXT")
         if "classification_score" not in tracks_columns:
             await conn.execute("ALTER TABLE tracks ADD COLUMN classification_score REAL")
+
+        # Migration: Add inserted_path column to tracks table
+        if "inserted_path" not in tracks_columns:
+            await conn.execute("ALTER TABLE tracks ADD COLUMN inserted_path TEXT")
 
         # Migration: Populate tracks from scan_data for existing discs
         # Only migrate discs that have scan_data but no tracks (idempotent)
