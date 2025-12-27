@@ -986,3 +986,85 @@ class TestTMDBEndpoints:
 
             assert response.status_code == 404
             assert "Could not fetch external IDs" in response.json()["detail"]
+
+
+class TestDiscMetadata:
+    """Tests for POST /api/disc/metadata."""
+
+    @pytest.fixture
+    def db_with_disc(self, tmp_path, monkeypatch):
+        """Create a test database with a disc."""
+        import asyncio
+        from amphigory.database import Database
+        from amphigory.api import disc_repository
+
+        db_path = tmp_path / "test.db"
+        db = Database(db_path)
+        asyncio.run(db.initialize())
+        monkeypatch.setattr(disc_repository, "get_db_path", lambda: db_path)
+
+        # Create a disc with fingerprint
+        async def create_disc():
+            async with db.connection() as conn:
+                await conn.execute(
+                    "INSERT INTO discs (fingerprint, title) VALUES (?, ?)",
+                    ("abc123fingerprint", "Unknown Disc")
+                )
+                await conn.commit()
+        asyncio.run(create_disc())
+
+        return db_path
+
+    def test_updates_disc_metadata(self, client, db_with_disc):
+        """POST /api/disc/metadata updates disc record."""
+        response = client.post("/api/disc/metadata", json={
+            "fingerprint": "abc123fingerprint",
+            "tmdb_id": "129",
+            "imdb_id": "tt0347149",
+            "title": "Howl's Moving Castle",
+            "year": 2004
+        })
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["updated"] is True
+
+    def test_metadata_persists_in_database(self, client, db_with_disc):
+        """Metadata is stored in discs table."""
+        import asyncio
+        import aiosqlite
+
+        client.post("/api/disc/metadata", json={
+            "fingerprint": "abc123fingerprint",
+            "tmdb_id": "129",
+            "imdb_id": "tt0347149",
+            "title": "Howl's Moving Castle",
+            "year": 2004
+        })
+
+        async def check_db():
+            async with aiosqlite.connect(db_with_disc) as conn:
+                conn.row_factory = aiosqlite.Row
+                cursor = await conn.execute(
+                    "SELECT tmdb_id, imdb_id, title, year FROM discs WHERE fingerprint = ?",
+                    ("abc123fingerprint",)
+                )
+                row = await cursor.fetchone()
+                return dict(row)
+
+        result = asyncio.run(check_db())
+        assert result["tmdb_id"] == "129"
+        assert result["imdb_id"] == "tt0347149"
+        assert result["title"] == "Howl's Moving Castle"
+        assert result["year"] == 2004
+
+    def test_returns_404_for_unknown_fingerprint(self, client, db_with_disc):
+        """Returns 404 if fingerprint not found."""
+        response = client.post("/api/disc/metadata", json={
+            "fingerprint": "unknown_fingerprint",
+            "tmdb_id": "129",
+            "title": "Test",
+            "year": 2024
+        })
+
+        assert response.status_code == 404
