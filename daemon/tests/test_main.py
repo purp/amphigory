@@ -1133,34 +1133,94 @@ class TestOpticalDriveIntegration:
         assert daemon.optical_drive.state == DriveState.EMPTY
         assert daemon.optical_drive.disc_volume is None
 
-    def test_detect_disc_type_bluray(self, tmp_path):
-        """_detect_disc_type returns 'bluray' for BDMV structure."""
+    def test_detect_disc_type_dvd_via_drutil(self):
+        """_detect_disc_type returns 'dvd' when drutil reports DVD-ROM."""
         from amphigory_daemon.main import AmphigoryDaemon
 
-        (tmp_path / "BDMV").mkdir()
-
         daemon = AmphigoryDaemon()
-        result = daemon._detect_disc_type(str(tmp_path))
 
-        assert result == "bluray"
+        drutil_output = """
+ Vendor   Product           Rev
+ HL-DT-ST BD-RE BU40N       1.02
 
-    def test_detect_disc_type_dvd(self, tmp_path):
-        """_detect_disc_type returns 'dvd' for VIDEO_TS structure."""
-        from amphigory_daemon.main import AmphigoryDaemon
+           Type: DVD-ROM              Name: /dev/disk8
+       Sessions: 1                  Tracks: 1
+"""
 
-        (tmp_path / "VIDEO_TS").mkdir()
-
-        daemon = AmphigoryDaemon()
-        result = daemon._detect_disc_type(str(tmp_path))
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stdout=drutil_output, stderr="")
+            result = daemon._detect_disc_type()
 
         assert result == "dvd"
 
-    def test_detect_disc_type_cd(self, tmp_path):
-        """_detect_disc_type returns 'cd' for unknown structure."""
+    def test_detect_disc_type_bluray_via_drutil(self):
+        """_detect_disc_type returns 'bluray' when drutil reports BD-ROM."""
         from amphigory_daemon.main import AmphigoryDaemon
 
         daemon = AmphigoryDaemon()
-        result = daemon._detect_disc_type(str(tmp_path))
+
+        drutil_output = """
+ Vendor   Product           Rev
+ HL-DT-ST BD-RE BU40N       1.02
+
+           Type: BD-ROM               Name: /dev/disk8
+       Sessions: 1                  Tracks: 1
+"""
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stdout=drutil_output, stderr="")
+            result = daemon._detect_disc_type()
+
+        assert result == "bluray"
+
+    def test_detect_disc_type_cd_via_drutil(self):
+        """_detect_disc_type returns 'cd' when drutil reports CD-ROM."""
+        from amphigory_daemon.main import AmphigoryDaemon
+
+        daemon = AmphigoryDaemon()
+
+        drutil_output = """
+ Vendor   Product           Rev
+ HL-DT-ST BD-RE BU40N       1.02
+
+           Type: CD-ROM               Name: /dev/disk8
+       Sessions: 1                  Tracks: 1
+"""
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stdout=drutil_output, stderr="")
+            result = daemon._detect_disc_type()
+
+        assert result == "cd"
+
+    def test_detect_disc_type_unknown_defaults_to_cd(self):
+        """_detect_disc_type returns 'cd' for unknown disc types."""
+        from amphigory_daemon.main import AmphigoryDaemon
+
+        daemon = AmphigoryDaemon()
+
+        drutil_output = """
+ Vendor   Product           Rev
+ HL-DT-ST BD-RE BU40N       1.02
+
+           Type: Unknown              Name: /dev/disk8
+"""
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stdout=drutil_output, stderr="")
+            result = daemon._detect_disc_type()
+
+        assert result == "cd"
+
+    def test_detect_disc_type_handles_drutil_failure(self):
+        """_detect_disc_type returns 'cd' if drutil fails."""
+        from amphigory_daemon.main import AmphigoryDaemon
+
+        daemon = AmphigoryDaemon()
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="error")
+            result = daemon._detect_disc_type()
 
         assert result == "cd"
 
@@ -1271,22 +1331,19 @@ class TestWakeDisc:
             device="/dev/rdisk0",
         )
 
-        # Create DVD structure
+        # Create DVD structure for fingerprinting
         (tmp_path / "VIDEO_TS").mkdir()
         (tmp_path / "VIDEO_TS" / "VIDEO_TS.IFO").write_bytes(b"mock ifo")
 
         call_order = []
 
-        original_wake = daemon._wake_disc
-        original_detect = daemon._detect_disc_type
-
         def mock_wake(device):
             call_order.append("wake")
             return True
 
-        def mock_detect(path):
+        def mock_detect():
             call_order.append("detect")
-            return original_detect(path)
+            return "dvd"
 
         daemon._wake_disc = mock_wake
         daemon._detect_disc_type = mock_detect

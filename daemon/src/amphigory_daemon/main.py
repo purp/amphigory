@@ -608,28 +608,55 @@ class AmphigoryDaemon(rumps.App):
             logger.warning(f"Failed to wake disc: {e}")
             return False
 
-    def _detect_disc_type(self, volume_path: str) -> str:
-        """Detect disc type from volume structure.
+    def _detect_disc_type(self) -> str:
+        """Detect disc type using drutil status.
 
-        Checks for BDMV (Blu-ray) or VIDEO_TS (DVD) directories.
-        Assumes _wake_disc() has already been called to spin up the drive.
-
-        Args:
-            volume_path: Path to the mounted volume
+        Queries the optical drive directly via macOS drutil command,
+        which is more reliable than checking filesystem directories
+        (especially for cold drives that haven't fully mounted yet).
 
         Returns:
             'bluray', 'dvd', or 'cd'
         """
-        path = Path(volume_path)
+        import subprocess
 
-        if (path / "BDMV").exists():
-            logger.debug("Detected Blu-ray (BDMV found)")
-            return "bluray"
-        elif (path / "VIDEO_TS").exists():
-            logger.debug("Detected DVD (VIDEO_TS found)")
-            return "dvd"
-        else:
-            logger.debug("No BDMV or VIDEO_TS found, assuming CD/audio")
+        try:
+            result = subprocess.run(
+                ["drutil", "status"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+            )
+
+            if result.returncode != 0:
+                logger.warning(f"drutil status failed: {result.stderr}")
+                return "cd"
+
+            # Parse the Type: line from drutil output
+            # Example: "           Type: DVD-ROM              Name: /dev/disk8"
+            for line in result.stdout.split("\n"):
+                if "Type:" in line:
+                    type_str = line.split("Type:")[1].split()[0].strip()
+                    logger.debug(f"drutil reported disc type: {type_str}")
+
+                    if type_str.startswith("BD"):
+                        return "bluray"
+                    elif type_str.startswith("DVD"):
+                        return "dvd"
+                    elif type_str.startswith("CD"):
+                        return "cd"
+                    else:
+                        logger.debug(f"Unknown disc type '{type_str}', defaulting to cd")
+                        return "cd"
+
+            logger.debug("No Type: line found in drutil output, defaulting to cd")
+            return "cd"
+
+        except subprocess.TimeoutExpired:
+            logger.warning("drutil status timed out")
+            return "cd"
+        except Exception as e:
+            logger.warning(f"Failed to run drutil: {e}")
             return "cd"
 
     def on_disc_insert(self, device: str, volume_name: str, volume_path: str) -> None:
@@ -639,8 +666,8 @@ class AmphigoryDaemon(rumps.App):
         # Wake disc drive first (ensures it's spun up for cold-start detection)
         self._wake_disc(device)
 
-        # Determine disc type
-        disc_type = self._detect_disc_type(volume_path)
+        # Determine disc type using drutil (more reliable than filesystem checks)
+        disc_type = self._detect_disc_type()
 
         # Update OpticalDrive model
         if self.optical_drive:
