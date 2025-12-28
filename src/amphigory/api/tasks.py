@@ -437,11 +437,18 @@ async def process_tracks(request: ProcessTracksRequest) -> ProcessTracksResponse
             output_dir += "/"
         ripped_path = f"{output_dir}{track.output_filename}"
 
-        transcoded_dir = str(config.transcoded_dir)
+        # For transcode task, use container paths (not daemon/host paths)
+        # The container sees ripped files at /media/ripped, transcoded at /media/transcoded
+        container_ripped_dir = str(config.ripped_dir)  # e.g., /media/ripped
+        if not container_ripped_dir.endswith("/"):
+            container_ripped_dir += "/"
+        container_ripped_path = f"{container_ripped_dir}{disc_folder}{track.output_filename}"
+
+        transcoded_dir = str(config.transcoded_dir)  # e.g., /media/transcoded
         # Replace .mkv with .mp4 for transcoded output
         stem = track.output_filename.rsplit(".", 1)[0]
         transcode_filename = f"{stem}.mp4"
-        transcoded_path = f"{transcoded_dir}/{stem}/{transcode_filename}"
+        transcoded_path = f"{transcoded_dir}/{disc_folder}{transcode_filename}"
 
         # Create rip task
         rip_id = generate_task_id("rip")
@@ -476,12 +483,13 @@ async def process_tracks(request: ProcessTracksRequest) -> ProcessTracksResponse
         })
 
         # Create transcode task (depends on rip output)
+        # Uses container paths since transcoding runs inside the container
         transcode_id = generate_task_id("transcode")
         transcode_task = {
             "id": transcode_id,
             "type": "transcode",
             "created_at": datetime.now().isoformat(),
-            "input": ripped_path,
+            "input": container_ripped_path,
             "output": transcoded_path,
             "preset": track.preset,
             "disc_fingerprint": request.disc_fingerprint,
@@ -496,7 +504,7 @@ async def process_tracks(request: ProcessTracksRequest) -> ProcessTracksResponse
         created_tasks.append({
             "task_id": transcode_id,
             "type": "transcode",
-            "input": ripped_path,
+            "input": container_ripped_path,
             "output": transcoded_path,
         })
 
