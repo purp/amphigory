@@ -82,9 +82,11 @@ def generate_fingerprint_from_drutil(
         if volume_name:
             hasher.update(f"volume:{volume_name}".encode())
 
-        fingerprint = hasher.hexdigest()
+        # Add human-readable prefix based on disc type
+        prefix = _get_fingerprint_prefix(disc_type)
+        fingerprint = f"{prefix}-{hasher.hexdigest()}"
         logger.info(
-            f"Generated drutil fingerprint: {fingerprint[:16]}... "
+            f"Generated drutil fingerprint: {fingerprint[:20]}... "
             f"(blocks={block_count}, type={media_type}, tracks={len(track_infos)})"
         )
         return fingerprint
@@ -95,6 +97,17 @@ def generate_fingerprint_from_drutil(
         if isinstance(e, FingerprintError):
             raise
         raise FingerprintError(f"Failed to generate drutil fingerprint: {e}")
+
+
+def _get_fingerprint_prefix(disc_type: str) -> str:
+    """Get human-readable prefix for fingerprint based on disc type."""
+    prefixes = {
+        "dvd": "dvd",
+        "bluray": "br",
+        "cd": "cd",
+        "uhd4k": "uhd",
+    }
+    return prefixes.get(disc_type, "disc")
 
 
 def _extract_xml_attr(xml: str, element: str, attr: str) -> Optional[str]:

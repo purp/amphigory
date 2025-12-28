@@ -92,7 +92,7 @@ class TestDrutilFingerprint:
     """Tests for generate_fingerprint_from_drutil function."""
 
     def test_returns_string_fingerprint(self):
-        """generate_fingerprint_from_drutil returns a string."""
+        """generate_fingerprint_from_drutil returns a string with prefix."""
         drutil_xml = '''<?xml version="1.0"?>
             <statusdoc>
                 <usedSpace blockCount="3940480" msf="875:39:55"/>
@@ -106,7 +106,8 @@ class TestDrutilFingerprint:
             result = generate_fingerprint_from_drutil("dvd", "TEST_DISC")
 
         assert isinstance(result, str)
-        assert len(result) == 64  # SHA256 hex
+        assert result.startswith("dvd-")
+        assert len(result) == 68  # "dvd-" + 64 hex chars
 
     def test_different_block_counts_produce_different_fingerprints(self):
         """Different block counts produce different fingerprints."""
@@ -222,4 +223,24 @@ class TestDrutilFingerprint:
             result = generate_fingerprint_from_drutil("dvd")
 
         assert isinstance(result, str)
-        assert len(result) == 64
+        assert result.startswith("dvd-")
+
+    def test_bluray_prefix(self):
+        """Blu-ray discs get br- prefix."""
+        drutil_xml = '<usedSpace blockCount="12345678"/>'
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stdout=drutil_xml, stderr="")
+            result = generate_fingerprint_from_drutil("bluray")
+
+        assert result.startswith("br-")
+
+    def test_cd_prefix(self):
+        """CDs get cd- prefix."""
+        drutil_xml = '<usedSpace blockCount="123456"/>'
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stdout=drutil_xml, stderr="")
+            result = generate_fingerprint_from_drutil("cd")
+
+        assert result.startswith("cd-")
