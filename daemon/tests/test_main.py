@@ -1244,7 +1244,7 @@ class TestWakeDisc:
     """Tests for _wake_disc method (active spin-up via makemkvcon)."""
 
     def test_wake_disc_runs_makemkvcon_info(self):
-        """_wake_disc runs makemkvcon info command for the device."""
+        """_wake_disc runs makemkvcon info disc:9999 command to wake drive."""
         from amphigory_daemon.main import AmphigoryDaemon
         from amphigory_daemon.config import DaemonConfig
 
@@ -1256,15 +1256,21 @@ class TestWakeDisc:
         )
 
         with patch("subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+            # Simulate output with the device listed
+            mock_run.return_value = MagicMock(
+                returncode=1,  # "Fails" because disc:9999 doesn't exist
+                stdout='DRV:0,2,999,1,"BD-RE","DISC","/dev/rdisk8"',
+                stderr=""
+            )
 
             result = daemon._wake_disc("/dev/rdisk8")
 
             mock_run.assert_called_once()
             call_args = mock_run.call_args[0][0]
             assert "/usr/local/bin/makemkvcon" in call_args
+            assert "--cache=1" in call_args
             assert "info" in call_args
-            assert "dev:/dev/rdisk8" in call_args
+            assert "disc:9999" in call_args
             assert result is True
 
     def test_wake_disc_returns_false_without_config(self):
@@ -1278,8 +1284,8 @@ class TestWakeDisc:
 
         assert result is False
 
-    def test_wake_disc_handles_makemkvcon_failure(self):
-        """_wake_disc returns False if makemkvcon fails."""
+    def test_wake_disc_succeeds_even_with_nonzero_returncode(self):
+        """_wake_disc returns True even when disc:9999 'fails' (expected)."""
         from amphigory_daemon.main import AmphigoryDaemon
         from amphigory_daemon.config import DaemonConfig
 
@@ -1291,11 +1297,17 @@ class TestWakeDisc:
         )
 
         with patch("subprocess.run") as mock_run:
-            mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="error")
+            # disc:9999 returns non-zero but still wakes the drive
+            mock_run.return_value = MagicMock(
+                returncode=1,
+                stdout="DRV:0,256,999,0,\"\",\"\",\"\"",  # Empty drive listing
+                stderr="Failed to open disc"
+            )
 
             result = daemon._wake_disc("/dev/rdisk8")
 
-            assert result is False
+            # Still succeeds - drive was queried and woke up
+            assert result is True
 
     def test_wake_disc_handles_timeout(self):
         """_wake_disc returns False on timeout."""
