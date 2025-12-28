@@ -99,11 +99,26 @@ class ProcessTracksResponse(BaseModel):
     tasks: list[dict]
 
 
+class PauseStatusResponse(BaseModel):
+    """Response for pause status endpoints."""
+    paused: bool
+
+
 def ensure_directories(tasks_dir: Path) -> None:
     """Ensure task directories exist."""
     (tasks_dir / "queued").mkdir(parents=True, exist_ok=True)
     (tasks_dir / "in_progress").mkdir(parents=True, exist_ok=True)
     (tasks_dir / "complete").mkdir(parents=True, exist_ok=True)
+
+
+def get_pause_status() -> bool:
+    """Check if the task queue is paused.
+
+    Returns True if the PAUSED marker file exists in the tasks directory.
+    """
+    tasks_dir = get_tasks_dir()
+    paused_file = tasks_dir / "PAUSED"
+    return paused_file.exists()
 
 
 def update_tasks_json(tasks_dir: Path, task_id: str) -> None:
@@ -268,6 +283,47 @@ def cleanup_old_tasks(tasks_dir: Path, max_age_hours: int = 24) -> dict:
     return result
 
 
+@router.get("/pause-status", response_model=PauseStatusResponse)
+async def get_pause_status_endpoint() -> PauseStatusResponse:
+    """Get the current pause status of the task queue.
+
+    Returns paused=true if the PAUSED marker file exists.
+    """
+    return PauseStatusResponse(paused=get_pause_status())
+
+
+@router.post("/pause", response_model=PauseStatusResponse)
+async def pause_queue() -> PauseStatusResponse:
+    """Pause the task queue.
+
+    Creates a PAUSED marker file with a timestamp. The daemon will check
+    for this file and stop picking up new tasks while paused.
+
+    This operation is idempotent - calling pause multiple times is safe.
+    """
+    tasks_dir = get_tasks_dir()
+    tasks_dir.mkdir(parents=True, exist_ok=True)
+    paused_file = tasks_dir / "PAUSED"
+    paused_file.write_text(datetime.now().isoformat())
+    return PauseStatusResponse(paused=True)
+
+
+@router.post("/resume", response_model=PauseStatusResponse)
+async def resume_queue() -> PauseStatusResponse:
+    """Resume the task queue.
+
+    Removes the PAUSED marker file if it exists. The daemon will resume
+    picking up new tasks.
+
+    This operation is idempotent - calling resume when not paused is safe.
+    """
+    tasks_dir = get_tasks_dir()
+    paused_file = tasks_dir / "PAUSED"
+    if paused_file.exists():
+        paused_file.unlink()
+    return PauseStatusResponse(paused=False)
+
+
 @router.post("/scan", status_code=status.HTTP_201_CREATED, response_model=TaskResponse)
 async def create_scan_task() -> TaskResponse:
     """Create a new scan task.
@@ -355,10 +411,17 @@ async def process_tracks(request: ProcessTracksRequest) -> ProcessTracksResponse
 
     for track in request.tracks:
         # Build output paths
+        # DAEMON_RIPPED_DIR is the base path where daemon should write ripped files
         ripped_dir = os.environ.get("DAEMON_RIPPED_DIR") or str(config.ripped_dir)
-        output_dir = track.output_directory or f"{ripped_dir}/"
+        # Ensure ripped_dir ends with /
+        if not ripped_dir.endswith("/"):
+            ripped_dir += "/"
+        # output_directory from frontend is the disc folder name (e.g., "Movie (2024) {imdb-tt123}/")
+        # Combine with base ripped_dir to get full path
+        disc_folder = track.output_directory or ""
+        output_dir = f"{ripped_dir}{disc_folder}"
         # Ensure output_dir ends with /
-        if not output_dir.endswith("/"):
+        if output_dir and not output_dir.endswith("/"):
             output_dir += "/"
         ripped_path = f"{output_dir}{track.output_filename}"
 

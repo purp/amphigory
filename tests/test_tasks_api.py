@@ -1041,3 +1041,96 @@ class TestFailedTasksAPI:
         task = data["tasks"][0]
         assert task["started_at"] == "2025-12-26T18:00:00.000000"
         assert task["completed_at"] == "2025-12-26T18:00:05.000000"
+
+
+class TestPauseStatusAPI:
+    """Tests for pause status endpoints."""
+
+    def test_pause_status_returns_false_when_no_marker(self, client, tasks_dir):
+        """GET /api/tasks/pause-status returns paused=false when no PAUSED file exists."""
+        response = client.get("/api/tasks/pause-status")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["paused"] is False
+
+    def test_pause_status_returns_true_when_marker_exists(self, client, tasks_dir):
+        """GET /api/tasks/pause-status returns paused=true when PAUSED file exists."""
+        # Create the PAUSED marker file
+        paused_file = tasks_dir / "PAUSED"
+        paused_file.write_text("2025-12-27T12:00:00.000000")
+
+        response = client.get("/api/tasks/pause-status")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["paused"] is True
+
+    def test_pause_creates_marker_file(self, client, tasks_dir):
+        """POST /api/tasks/pause creates PAUSED marker file with timestamp."""
+        response = client.post("/api/tasks/pause")
+        assert response.status_code == 200
+
+        paused_file = tasks_dir / "PAUSED"
+        assert paused_file.exists()
+
+        # Check that the file contains a timestamp
+        content = paused_file.read_text()
+        # Should be an ISO format timestamp
+        assert "T" in content
+        assert len(content) > 10  # ISO timestamps are at least 10 chars
+
+    def test_pause_returns_paused_true(self, client, tasks_dir):
+        """POST /api/tasks/pause returns paused=true in response."""
+        response = client.post("/api/tasks/pause")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["paused"] is True
+
+    def test_resume_removes_marker_file(self, client, tasks_dir):
+        """POST /api/tasks/resume removes PAUSED marker file."""
+        # Create the PAUSED marker file first
+        paused_file = tasks_dir / "PAUSED"
+        paused_file.write_text("2025-12-27T12:00:00.000000")
+        assert paused_file.exists()
+
+        response = client.post("/api/tasks/resume")
+        assert response.status_code == 200
+
+        assert not paused_file.exists()
+
+    def test_resume_returns_paused_false(self, client, tasks_dir):
+        """POST /api/tasks/resume returns paused=false in response."""
+        # Create the PAUSED marker file first
+        paused_file = tasks_dir / "PAUSED"
+        paused_file.write_text("2025-12-27T12:00:00.000000")
+
+        response = client.post("/api/tasks/resume")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["paused"] is False
+
+    def test_pause_is_idempotent(self, client, tasks_dir):
+        """POST /api/tasks/pause is idempotent - calling multiple times succeeds."""
+        # Call pause twice
+        response1 = client.post("/api/tasks/pause")
+        assert response1.status_code == 200
+        assert response1.json()["paused"] is True
+
+        response2 = client.post("/api/tasks/pause")
+        assert response2.status_code == 200
+        assert response2.json()["paused"] is True
+
+        # PAUSED file should still exist
+        paused_file = tasks_dir / "PAUSED"
+        assert paused_file.exists()
+
+    def test_resume_is_idempotent(self, client, tasks_dir):
+        """POST /api/tasks/resume is idempotent - calling when not paused succeeds."""
+        # Call resume without any PAUSED file
+        response1 = client.post("/api/tasks/resume")
+        assert response1.status_code == 200
+        assert response1.json()["paused"] is False
+
+        # Call again
+        response2 = client.post("/api/tasks/resume")
+        assert response2.status_code == 200
+        assert response2.json()["paused"] is False
