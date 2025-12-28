@@ -147,3 +147,79 @@ class TestDrutilFingerprint:
             mock_run.return_value = MagicMock(returncode=0, stdout=drutil_xml, stderr="")
             with pytest.raises(FingerprintError):
                 generate_fingerprint_from_drutil("dvd")
+
+    def test_includes_track_info_in_fingerprint(self):
+        """Fingerprint includes per-track startAddress and size."""
+        # Same block count but different track layouts
+        drutil_xml1 = '''
+            <usedSpace blockCount="3940480"/>
+            <mediaType value="DVD-ROM"/>
+            <trackInfoList>
+                <trackinfo>
+                    <startAddress msf="0:00:00"/>
+                    <size msf="875:39:55"/>
+                </trackinfo>
+            </trackInfoList>
+        '''
+        drutil_xml2 = '''
+            <usedSpace blockCount="3940480"/>
+            <mediaType value="DVD-ROM"/>
+            <trackInfoList>
+                <trackinfo>
+                    <startAddress msf="0:02:00"/>
+                    <size msf="873:39:55"/>
+                </trackinfo>
+            </trackInfoList>
+        '''
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stdout=drutil_xml1, stderr="")
+            fp1 = generate_fingerprint_from_drutil("dvd")
+
+            mock_run.return_value = MagicMock(returncode=0, stdout=drutil_xml2, stderr="")
+            fp2 = generate_fingerprint_from_drutil("dvd")
+
+        assert fp1 != fp2
+
+    def test_includes_lead_out_address(self):
+        """Fingerprint includes lastLeadOutStartAddress."""
+        drutil_xml1 = '''
+            <usedSpace blockCount="3940480"/>
+            <lastLeadOutStartAddress msf="875:39:55"/>
+        '''
+        drutil_xml2 = '''
+            <usedSpace blockCount="3940480"/>
+            <lastLeadOutStartAddress msf="876:00:00"/>
+        '''
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stdout=drutil_xml1, stderr="")
+            fp1 = generate_fingerprint_from_drutil("dvd")
+
+            mock_run.return_value = MagicMock(returncode=0, stdout=drutil_xml2, stderr="")
+            fp2 = generate_fingerprint_from_drutil("dvd")
+
+        assert fp1 != fp2
+
+    def test_handles_multiple_tracks(self):
+        """Fingerprint handles discs with multiple tracks."""
+        drutil_xml = '''
+            <usedSpace blockCount="3940480"/>
+            <trackInfoList>
+                <trackinfo>
+                    <startAddress msf="0:00:00"/>
+                    <size msf="100:00:00"/>
+                </trackinfo>
+                <trackinfo>
+                    <startAddress msf="100:00:00"/>
+                    <size msf="200:00:00"/>
+                </trackinfo>
+            </trackInfoList>
+        '''
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stdout=drutil_xml, stderr="")
+            result = generate_fingerprint_from_drutil("dvd")
+
+        assert isinstance(result, str)
+        assert len(result) == 64

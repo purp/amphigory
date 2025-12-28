@@ -26,6 +26,8 @@ def generate_fingerprint_from_drutil(
     - mediaType (DVD-ROM, BD-ROM, etc.)
     - sessionCount
     - trackCount
+    - lastLeadOutStartAddress (end of content)
+    - Per-track startAddress and size (from trackInfoList)
 
     Args:
         disc_type: "cd", "dvd", or "bluray"
@@ -54,6 +56,7 @@ def generate_fingerprint_from_drutil(
         media_type = _extract_xml_attr(output, "mediaType", "value")
         session_count = _extract_xml_attr(output, "sessionCount", "value")
         track_count = _extract_xml_attr(output, "trackCount", "value")
+        lead_out = _extract_xml_attr(output, "lastLeadOutStartAddress", "msf")
 
         if not block_count:
             raise FingerprintError("Could not extract blockCount from drutil")
@@ -68,13 +71,21 @@ def generate_fingerprint_from_drutil(
             hasher.update(f"sessions:{session_count}".encode())
         if track_count:
             hasher.update(f"tracks:{track_count}".encode())
+        if lead_out:
+            hasher.update(f"leadout:{lead_out}".encode())
+
+        # Include per-track info for additional uniqueness
+        track_infos = _extract_track_infos(output)
+        for i, (start, size) in enumerate(track_infos):
+            hasher.update(f"track{i}:{start}:{size}".encode())
+
         if volume_name:
             hasher.update(f"volume:{volume_name}".encode())
 
         fingerprint = hasher.hexdigest()
         logger.info(
             f"Generated drutil fingerprint: {fingerprint[:16]}... "
-            f"(blocks={block_count}, type={media_type})"
+            f"(blocks={block_count}, type={media_type}, tracks={len(track_infos)})"
         )
         return fingerprint
 
@@ -92,6 +103,21 @@ def _extract_xml_attr(xml: str, element: str, attr: str) -> Optional[str]:
     pattern = rf'<{element}[^>]*{attr}="([^"]*)"'
     match = re.search(pattern, xml)
     return match.group(1) if match else None
+
+
+def _extract_track_infos(xml: str) -> list[tuple[str, str]]:
+    """Extract (startAddress, size) for each track from trackInfoList."""
+    import re
+    tracks = []
+    # Find all trackinfo blocks and extract startAddress and size
+    trackinfo_pattern = r'<trackinfo>(.*?)</trackinfo>'
+    for match in re.finditer(trackinfo_pattern, xml, re.DOTALL):
+        block = match.group(1)
+        start = _extract_xml_attr(block, "startAddress", "msf")
+        size = _extract_xml_attr(block, "size", "msf")
+        if start and size:
+            tracks.append((start, size))
+    return tracks
 
 
 def generate_fingerprint(
