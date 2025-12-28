@@ -197,6 +197,10 @@ See `docs/plans/post-launch-followups.md` for planned improvements:
 - Safari layout fixes
 - App bundle packaging improvements
 
+## Acknowledgments
+
+- **[csandman's MakeMKV CLI Guide](https://gist.github.com/csandman/ad221b9014cf88c29ccfa604d8507790)** - Invaluable reference for `makemkvcon` command-line options and automation techniques. The `disc:9999` trick for fast drive enumeration came from here.
+
 ## License
 
 MIT
