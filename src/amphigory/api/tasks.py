@@ -76,6 +76,7 @@ class TaskStatusResponse(BaseModel):
 class TaskListResponse(BaseModel):
     """Response for listing tasks."""
     tasks: list[TaskStatusResponse]
+    paused: bool
 
 
 class ProcessTrackRequest(BaseModel):
@@ -519,7 +520,7 @@ async def get_failed_tasks() -> TaskListResponse:
                 logger.warning(f"Error reading failed task {task_file.name}: {e}")
                 continue
 
-    return TaskListResponse(tasks=tasks)
+    return TaskListResponse(tasks=tasks, paused=get_pause_status())
 
 
 @router.delete("/failed/{task_id}")
@@ -679,4 +680,4 @@ async def list_tasks() -> TaskListResponse:
                 error=data.get("error"),
             ))
 
-    return TaskListResponse(tasks=tasks)
+    return TaskListResponse(tasks=tasks, paused=get_pause_status())

@@ -249,6 +249,25 @@ class TestListTasks:
         assert response.status_code == 200
         assert response.json()["tasks"] == []
 
+    def test_list_tasks_includes_pause_status(self, client, tasks_dir):
+        """GET /api/tasks response includes paused field indicating queue pause status."""
+        # When no PAUSED file exists, paused should be false
+        response = client.get("/api/tasks")
+        assert response.status_code == 200
+        data = response.json()
+        assert "paused" in data
+        assert data["paused"] is False
+
+        # Create the PAUSED marker file
+        paused_file = tasks_dir / "PAUSED"
+        paused_file.write_text("2025-12-27T12:00:00.000000")
+
+        # Now paused should be true
+        response = client.get("/api/tasks")
+        assert response.status_code == 200
+        data = response.json()
+        assert data["paused"] is True
+
 
 class TestCleanupOldTasks:
     """Tests for cleanup_old_tasks function."""
