@@ -35,7 +35,7 @@ services:
 
       # Path where daemon should write ripped files (host path, not container path)
       # This is passed to the daemon via task files
-      - DAEMON_RIPPED_DIR=/Volumes/Media Drive 1/Ripped
+      - DAEMON_RIPPED_DIR=/Volumes/Media Drive 1/Amphigory Media/ripped
 
     volumes:
       # Application data (database, etc.)
@@ -45,8 +45,7 @@ services:
       # - /opt/beehive-docker/amphigory/config:/config
 
       # Media directories
-      - /Volumes/Media Drive 1/Ripped:/media/ripped
-      - /Volumes/Media Drive 1/plex-media-server/transcoded:/media/transcoded
+      - /Volumes/Media Drive 1/Amphigory Media:/media
       - /Volumes/Media Drive 1/plex-media-server/data:/media/plex/data
 
       # Wiki integration for Gollum
