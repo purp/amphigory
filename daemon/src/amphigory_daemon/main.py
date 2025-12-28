@@ -373,9 +373,8 @@ class AmphigoryDaemon(rumps.App):
         if not self.daemon_config:
             return
         paused_file = Path(self.daemon_config.webapp_basedir) / "tasks" / "PAUSED"
-        if paused_file.exists():
-            paused_file.unlink()
-            logger.info(f"Removed pause marker: {paused_file}")
+        paused_file.unlink(missing_ok=True)
+        logger.info(f"Removed pause marker: {paused_file}")
 
     def _update_icon(self) -> None:
         """Update the menu bar icon based on current state."""
