@@ -234,6 +234,13 @@ function populatePresetDropdown(selectElement, trackResolution) {
 
 // Drag and drop handlers
 function handleDragStart(e) {
+    // Don't start drag from input fields - allow text selection
+    const tag = e.target.tagName.toLowerCase();
+    if (tag === 'input' || tag === 'select' || tag === 'textarea' || tag === 'button') {
+        e.preventDefault();
+        return;
+    }
+
     // Clear any stale drag state (e.g., from cancelled drags)
     if (draggedRow) {
         draggedRow.classList.remove('dragging');
