@@ -21,7 +21,8 @@
             <label for="disc-title">Title:</label>
             <div style="display: flex; gap: 0.5rem; flex: 1;">
                 <input type="text" id="disc-title" name="disc_title"
-                       class="setting-input" placeholder="Enter disc title">
+                       class="setting-input" placeholder="Enter disc title"
+                       onkeydown="if(event.key === 'Enter') { event.preventDefault(); searchTMDB(); }">
                 <button type="button" class="btn btn-small" onclick="searchTMDB()">Search TMDB</button>
             </div>
         </div>
@@ -826,6 +827,15 @@ function showMetadataLinks(title, tmdbId, imdbId) {
 async function displayScanResult(result) {
     scanResult = result;
 
+    // Store fingerprint and disc_id from scan result for saving later
+    if (result.fingerprint) {
+        // Fingerprint is now returned from scan-result endpoint
+        scanResult.fingerprint = result.fingerprint;
+    }
+    if (result.disc_id) {
+        window.currentDiscId = result.disc_id;
+    }
+
     // Check for saved metadata
     if (result.fingerprint) {
         try {
@@ -929,6 +939,12 @@ async function displayScanResult(result) {
     populateAllPresetDropdowns();
 
     updateSelectedCount();
+
+    // Enable save buttons since we have disc data (currentDiscId is set above)
+    if (window.currentDiscId) {
+        enableSaveButton();
+        enableSaveTracksButton();
+    }
 }
 
 function formatSize(bytes) {

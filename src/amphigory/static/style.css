@@ -117,6 +117,20 @@ body {
     background: var(--primary-dark);
 }
 
+.btn:disabled,
+.btn-primary:disabled,
+.btn-secondary:disabled {
+    background: var(--border);
+    color: var(--text-muted);
+    cursor: not-allowed;
+    opacity: 0.7;
+}
+
+.btn-primary:disabled:hover,
+.btn-secondary:disabled:hover {
+    background: var(--border);
+}
+
 .status-message {
     color: var(--text-muted);
 }

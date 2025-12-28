@@ -113,6 +113,8 @@ class ScanResultResponse(BaseModel):
     disc_name: str
     disc_type: str
     tracks: list[dict]
+    fingerprint: Optional[str] = None
+    disc_id: Optional[int] = None
 
 
 @router.get("/status")
@@ -273,13 +275,16 @@ async def get_scan_result(request: Request, task_id: Optional[str] = None) -> Sc
 
         # Save to database if we have a fingerprint
         fingerprint = await _get_current_fingerprint()
+        disc_id = None
         if fingerprint:
-            await disc_repository.save_disc_scan(fingerprint, scan_data)
+            disc_id = await disc_repository.save_disc_scan(fingerprint, scan_data)
 
         return ScanResultResponse(
             disc_name=result["disc_name"],
             disc_type=result["disc_type"],
             tracks=result.get("tracks", []),
+            fingerprint=fingerprint,
+            disc_id=disc_id,
         )
 
     # No task_id - find the most recent scan result
@@ -311,13 +316,16 @@ async def get_scan_result(request: Request, task_id: Optional[str] = None) -> Sc
 
     # Save to database if we have a fingerprint
     fingerprint = await _get_current_fingerprint()
+    disc_id = None
     if fingerprint:
-        await disc_repository.save_disc_scan(fingerprint, scan_data)
+        disc_id = await disc_repository.save_disc_scan(fingerprint, scan_data)
 
     return ScanResultResponse(
         disc_name=result["disc_name"],
         disc_type=result["disc_type"],
         tracks=result.get("tracks", []),
+        fingerprint=fingerprint,
+        disc_id=disc_id,
     )
 
 
