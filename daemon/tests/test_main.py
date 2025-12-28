@@ -1240,6 +1240,129 @@ class TestWaitForDiscReady:
         assert result == "dvd"
 
 
+class TestWakeDisc:
+    """Tests for _wake_disc method (active spin-up via makemkvcon)."""
+
+    def test_wake_disc_runs_makemkvcon_info(self):
+        """_wake_disc runs makemkvcon info command for the device."""
+        from amphigory_daemon.main import AmphigoryDaemon
+        from amphigory_daemon.config import DaemonConfig
+
+        daemon = AmphigoryDaemon()
+        daemon.daemon_config = DaemonConfig(
+            webapp_url="http://localhost:6199",
+            webapp_basedir="/tmp",
+            makemkvcon_path="/usr/local/bin/makemkvcon",
+        )
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stdout="", stderr="")
+
+            result = daemon._wake_disc("/dev/rdisk8")
+
+            mock_run.assert_called_once()
+            call_args = mock_run.call_args[0][0]
+            assert "/usr/local/bin/makemkvcon" in call_args
+            assert "info" in call_args
+            assert "dev:/dev/rdisk8" in call_args
+            assert result is True
+
+    def test_wake_disc_returns_false_without_config(self):
+        """_wake_disc returns False if no config (no makemkvcon path)."""
+        from amphigory_daemon.main import AmphigoryDaemon
+
+        daemon = AmphigoryDaemon()
+        daemon.daemon_config = None
+
+        result = daemon._wake_disc("/dev/rdisk8")
+
+        assert result is False
+
+    def test_wake_disc_handles_makemkvcon_failure(self):
+        """_wake_disc returns False if makemkvcon fails."""
+        from amphigory_daemon.main import AmphigoryDaemon
+        from amphigory_daemon.config import DaemonConfig
+
+        daemon = AmphigoryDaemon()
+        daemon.daemon_config = DaemonConfig(
+            webapp_url="http://localhost:6199",
+            webapp_basedir="/tmp",
+            makemkvcon_path="/usr/local/bin/makemkvcon",
+        )
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="error")
+
+            result = daemon._wake_disc("/dev/rdisk8")
+
+            assert result is False
+
+    def test_wake_disc_handles_timeout(self):
+        """_wake_disc returns False on timeout."""
+        from amphigory_daemon.main import AmphigoryDaemon
+        from amphigory_daemon.config import DaemonConfig
+        import subprocess
+
+        daemon = AmphigoryDaemon()
+        daemon.daemon_config = DaemonConfig(
+            webapp_url="http://localhost:6199",
+            webapp_basedir="/tmp",
+            makemkvcon_path="/usr/local/bin/makemkvcon",
+        )
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.side_effect = subprocess.TimeoutExpired(cmd="makemkvcon", timeout=30)
+
+            result = daemon._wake_disc("/dev/rdisk8")
+
+            assert result is False
+
+    def test_on_disc_insert_wakes_disc_before_detecting_type(self, tmp_path):
+        """on_disc_insert calls _wake_disc before _detect_disc_type."""
+        from amphigory_daemon.main import AmphigoryDaemon
+        from amphigory_daemon.drive import OpticalDrive
+        from amphigory_daemon.config import DaemonConfig
+
+        daemon = AmphigoryDaemon()
+        daemon.daemon_config = DaemonConfig(
+            webapp_url="http://localhost:6199",
+            webapp_basedir="/tmp",
+            makemkvcon_path="/usr/local/bin/makemkvcon",
+        )
+        daemon.optical_drive = OpticalDrive(
+            daemon_id='test@host',
+            device="/dev/rdisk0",
+        )
+
+        # Create DVD structure
+        (tmp_path / "VIDEO_TS").mkdir()
+        (tmp_path / "VIDEO_TS" / "VIDEO_TS.IFO").write_bytes(b"mock ifo")
+
+        call_order = []
+
+        original_wake = daemon._wake_disc
+        original_detect = daemon._detect_disc_type
+
+        def mock_wake(device):
+            call_order.append("wake")
+            return True
+
+        def mock_detect(path, timeout=10.0):
+            call_order.append("detect")
+            return original_detect(path, timeout)
+
+        daemon._wake_disc = mock_wake
+        daemon._detect_disc_type = mock_detect
+
+        daemon.on_disc_insert("/dev/rdisk8", "TEST_DISC", str(tmp_path))
+
+        # Wake should be called before detect
+        assert call_order == ["wake", "detect"]
+
+
+class TestFingerprintOnInsert:
+    """Tests for fingerprint generation during disc insertion."""
+
     def test_fingerprint_generated_on_disc_insert(self, tmp_path):
         """on_disc_insert generates fingerprint when volume_path has DVD structure."""
         from amphigory_daemon.main import AmphigoryDaemon

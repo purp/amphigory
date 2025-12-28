@@ -556,6 +556,49 @@ class AmphigoryDaemon(rumps.App):
                     "Please restart the daemon to apply changes.",
                 )
 
+    def _wake_disc(self, device: str, timeout: float = 30.0) -> bool:
+        """Wake up the disc drive using makemkvcon.
+
+        Runs a quick `makemkvcon info` command to force the drive to spin up.
+        This is more reliable than passive filesystem polling for cold drives.
+
+        Args:
+            device: Device path (e.g., /dev/rdisk8)
+            timeout: Maximum time to wait for makemkvcon
+
+        Returns:
+            True if drive woke up successfully, False otherwise
+        """
+        import subprocess
+
+        if not self.daemon_config or not self.daemon_config.makemkvcon_path:
+            logger.debug("No makemkvcon path configured, skipping active wake")
+            return False
+
+        makemkv_path = self.daemon_config.makemkvcon_path
+        cmd = [makemkv_path, "-r", "info", f"dev:{device}"]
+
+        logger.info(f"Waking disc drive with: {' '.join(cmd)}")
+        try:
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=timeout,
+            )
+            if result.returncode == 0:
+                logger.info("Disc drive woke up successfully")
+                return True
+            else:
+                logger.warning(f"makemkvcon info failed: {result.stderr}")
+                return False
+        except subprocess.TimeoutExpired:
+            logger.warning(f"makemkvcon info timed out after {timeout}s")
+            return False
+        except Exception as e:
+            logger.warning(f"Failed to wake disc: {e}")
+            return False
+
     def _wait_for_disc_ready(self, volume_path: str, timeout: float = 10.0) -> bool:
         """Wait for disc to be readable (spun up and accessible).
 
@@ -622,6 +665,9 @@ class AmphigoryDaemon(rumps.App):
     def on_disc_insert(self, device: str, volume_name: str, volume_path: str) -> None:
         """Handle disc insertion."""
         logger.info(f"Disc inserted: {volume_name} at {device}, path: {volume_path}")
+
+        # Wake disc drive first (ensures it's spun up for cold-start detection)
+        self._wake_disc(device)
 
         # Determine disc type
         disc_type = self._detect_disc_type(volume_path)
