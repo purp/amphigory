@@ -485,6 +485,12 @@ document.addEventListener('amphigory:progress', (e) => {
     }
 });
 
+// Listen for pause state changes via WebSocket
+document.addEventListener('amphigory:queue_paused', (e) => {
+    isPaused = e.detail.paused;
+    updatePauseUI();
+});
+
 // Refresh periodically
 function startPolling() {
     loadTasks();

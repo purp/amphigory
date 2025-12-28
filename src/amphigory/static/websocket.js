@@ -16,6 +16,7 @@ class AmphigoryWebSocket {
             'progress': [],
             'heartbeat': [],
             'sync': [],
+            'queue_paused': [],
         };
 
         // UI elements
@@ -35,6 +36,7 @@ class AmphigoryWebSocket {
         this.on('disc_event', (data) => this.handleDiscEvent(data));
         this.on('progress', (data) => this.handleProgress(data));
         this.on('heartbeat', (data) => this.handleHeartbeat(data));
+        this.on('queue_paused', (data) => this.handleQueuePaused(data));
     }
 
     /**
@@ -204,6 +206,14 @@ class AmphigoryWebSocket {
     handleHeartbeat(data) {
         // Update last-seen timestamp
         this.lastHeartbeat = new Date();
+    }
+
+    /**
+     * Handle queue_paused event
+     */
+    handleQueuePaused(data) {
+        // Dispatch a custom event so queue.html can respond
+        document.dispatchEvent(new CustomEvent('amphigory:queue_paused', { detail: data }));
     }
 
     /**

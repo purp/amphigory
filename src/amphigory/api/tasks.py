@@ -19,6 +19,7 @@ from pydantic import BaseModel
 
 from amphigory.api.common import generate_task_id
 from amphigory.api import disc_repository
+from amphigory.websocket import manager
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -306,6 +307,10 @@ async def pause_queue() -> PauseStatusResponse:
     tasks_dir.mkdir(parents=True, exist_ok=True)
     paused_file = tasks_dir / "PAUSED"
     paused_file.write_text(datetime.now().isoformat())
+
+    # Broadcast pause state change to all connected browsers
+    await manager.broadcast({"type": "queue_paused", "paused": True})
+
     return PauseStatusResponse(paused=True)
 
 
@@ -324,6 +329,10 @@ async def resume_queue() -> PauseStatusResponse:
         paused_file.unlink()
     except FileNotFoundError:
         pass  # Already removed - idempotent behavior
+
+    # Broadcast pause state change to all connected browsers
+    await manager.broadcast({"type": "queue_paused", "paused": False})
+
     return PauseStatusResponse(paused=False)
 
 
