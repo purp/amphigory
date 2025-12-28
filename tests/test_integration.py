@@ -286,6 +286,78 @@ class TestWebSocketIntegration:
             assert not hasattr(daemon, 'disc_inserted') or daemon.disc_inserted is False
 
 
+class TestRipTranscodeChain:
+    """Integration tests for rip → transcode task chain."""
+
+    @pytest.fixture
+    def media_dirs(self, tmp_path):
+        """Create ripped and transcoded directories."""
+        ripped = tmp_path / "ripped"
+        transcoded = tmp_path / "transcoded"
+        ripped.mkdir()
+        transcoded.mkdir()
+        return {"ripped": ripped, "transcoded": transcoded}
+
+    def test_transcode_task_waits_for_rip_output(self, client, tasks_dir, media_dirs):
+        """Transcode task is queued even when rip output file doesn't exist yet."""
+        rip_output = media_dirs["ripped"] / "Movie (2024)" / "Movie (2024).mkv"
+
+        # Create rip task (completed) and transcode task (waiting)
+        rip_task = {
+            "id": "20251227T100000.000000-rip",
+            "type": "rip",
+            "status": "complete",
+            "output": str(rip_output),
+        }
+        transcode_task = {
+            "id": "20251227T100000.000001-transcode",
+            "type": "transcode",
+            "input": str(rip_output),
+            "output": str(media_dirs["transcoded"] / "Movie (2024).mp4"),
+            "preset": "H.265 MKV 1080p",
+        }
+
+        # Write tasks
+        with open(tasks_dir / "complete" / f"{rip_task['id']}.json", "w") as f:
+            json.dump(rip_task, f)
+        with open(tasks_dir / "queued" / f"{transcode_task['id']}.json", "w") as f:
+            json.dump(transcode_task, f)
+
+        # Transcode should be in queued state (input doesn't exist yet)
+        response = client.get("/api/tasks")
+        data = response.json()
+        queued = [t for t in data.get("tasks", []) if t["id"] == transcode_task["id"]]
+        assert len(queued) == 1
+        assert queued[0]["status"] == "queued"
+
+    def test_transcode_ready_when_rip_output_exists(self, client, tasks_dir, media_dirs):
+        """Transcode task is gettable when rip output file exists."""
+        rip_output = media_dirs["ripped"] / "Movie (2024)" / "Movie (2024).mkv"
+        rip_output.parent.mkdir(parents=True)
+        rip_output.write_text("fake mkv content")  # Create the file
+
+        transcode_task = {
+            "id": "20251227T100000.000001-transcode",
+            "type": "transcode",
+            "input": str(rip_output),
+            "output": str(media_dirs["transcoded"] / "Movie (2024).mp4"),
+            "preset": "H.265 MKV 1080p",
+        }
+
+        with open(tasks_dir / "queued" / f"{transcode_task['id']}.json", "w") as f:
+            json.dump(transcode_task, f)
+        with open(tasks_dir / "tasks.json", "w") as f:
+            json.dump([transcode_task["id"]], f)
+
+        # Input exists, so transcode should be gettable and queued
+        response = client.get("/api/tasks")
+        assert response.status_code == 200
+        data = response.json()
+        # The task should exist in the response
+        task_ids = [t["id"] for t in data.get("tasks", [])]
+        assert transcode_task["id"] in task_ids
+
+
 # --- Track Normalization Integration Tests ---
 
 
