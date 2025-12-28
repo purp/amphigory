@@ -1164,6 +1164,82 @@ class TestOpticalDriveIntegration:
 
         assert result == "cd"
 
+
+class TestWaitForDiscReady:
+    """Tests for _wait_for_disc_ready method."""
+
+    def test_returns_true_when_disc_readable(self, tmp_path):
+        """Returns True immediately when disc has readable content."""
+        from amphigory_daemon.main import AmphigoryDaemon
+
+        # Create some content
+        (tmp_path / "VIDEO_TS").mkdir()
+
+        daemon = AmphigoryDaemon()
+        result = daemon._wait_for_disc_ready(str(tmp_path), timeout=1.0)
+
+        assert result is True
+
+    def test_returns_false_on_empty_directory(self, tmp_path):
+        """Returns False if directory stays empty (no disc content)."""
+        from amphigory_daemon.main import AmphigoryDaemon
+
+        daemon = AmphigoryDaemon()
+        result = daemon._wait_for_disc_ready(str(tmp_path), timeout=0.5)
+
+        assert result is False
+
+    def test_waits_for_content_to_appear(self, tmp_path):
+        """Waits and returns True when content appears after delay."""
+        from amphigory_daemon.main import AmphigoryDaemon
+        import threading
+        import time
+
+        daemon = AmphigoryDaemon()
+
+        # Add content after a short delay (simulating disc spin-up)
+        def add_content():
+            time.sleep(0.3)
+            (tmp_path / "BDMV").mkdir()
+
+        threading.Thread(target=add_content).start()
+
+        result = daemon._wait_for_disc_ready(str(tmp_path), timeout=2.0)
+
+        assert result is True
+
+    def test_handles_permission_error(self, tmp_path):
+        """Returns False gracefully on permission errors."""
+        from amphigory_daemon.main import AmphigoryDaemon
+
+        daemon = AmphigoryDaemon()
+
+        # Non-existent path will raise FileNotFoundError
+        result = daemon._wait_for_disc_ready("/nonexistent/path", timeout=0.5)
+
+        assert result is False
+
+    def test_detect_disc_type_waits_for_ready(self, tmp_path):
+        """_detect_disc_type waits for disc to be readable before detecting."""
+        from amphigory_daemon.main import AmphigoryDaemon
+        import threading
+        import time
+
+        daemon = AmphigoryDaemon()
+
+        # Add DVD structure after delay (simulating cold drive spin-up)
+        def add_content():
+            time.sleep(0.3)
+            (tmp_path / "VIDEO_TS").mkdir()
+
+        threading.Thread(target=add_content).start()
+
+        # Should wait for content and detect DVD, not default to CD
+        result = daemon._detect_disc_type(str(tmp_path), timeout=2.0)
+
+        assert result == "dvd"
+
+
     def test_fingerprint_generated_on_disc_insert(self, tmp_path):
         """on_disc_insert generates fingerprint when volume_path has DVD structure."""
         from amphigory_daemon.main import AmphigoryDaemon

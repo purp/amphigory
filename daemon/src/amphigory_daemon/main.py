@@ -556,30 +556,68 @@ class AmphigoryDaemon(rumps.App):
                     "Please restart the daemon to apply changes.",
                 )
 
-    def _detect_disc_type(self, volume_path: str, max_retries: int = 3) -> str:
-        """Detect disc type from volume structure.
+    def _wait_for_disc_ready(self, volume_path: str, timeout: float = 10.0) -> bool:
+        """Wait for disc to be readable (spun up and accessible).
 
-        Retries a few times to handle race conditions where the disc
-        filesystem isn't fully visible immediately after mount.
+        Cold drives can take several seconds to spin up after mount.
+        This method waits until we can actually read directory contents.
+
+        Args:
+            volume_path: Path to the mounted volume
+            timeout: Maximum time to wait in seconds
+
+        Returns:
+            True if disc became readable, False on timeout
         """
         import time
         path = Path(volume_path)
+        start = time.time()
+        poll_interval = 0.5
 
-        for attempt in range(max_retries):
-            if (path / "BDMV").exists():
-                logger.debug(f"Detected Blu-ray (BDMV found) on attempt {attempt + 1}")
-                return "bluray"
-            elif (path / "VIDEO_TS").exists():
-                logger.debug(f"Detected DVD (VIDEO_TS found) on attempt {attempt + 1}")
-                return "dvd"
-            elif attempt < max_retries - 1:
-                # Wait and retry - filesystem might not be fully visible yet
-                logger.debug(f"No BDMV or VIDEO_TS found, retrying ({attempt + 1}/{max_retries})...")
-                time.sleep(0.5)
+        while time.time() - start < timeout:
+            try:
+                contents = list(path.iterdir())
+                if contents:
+                    elapsed = time.time() - start
+                    logger.debug(f"Disc ready: {len(contents)} items visible after {elapsed:.1f}s")
+                    return True
+            except (OSError, PermissionError, FileNotFoundError) as e:
+                logger.debug(f"Disc not ready yet: {e}")
+            time.sleep(poll_interval)
 
-        # Final fallback
-        logger.warning(f"No BDMV or VIDEO_TS found after {max_retries} attempts, defaulting to CD")
-        return "cd"
+        logger.warning(f"Disc at {volume_path} not ready after {timeout}s timeout")
+        return False
+
+    def _detect_disc_type(self, volume_path: str, timeout: float = 10.0) -> str:
+        """Detect disc type from volume structure.
+
+        Waits for disc to spin up, then checks for BDMV (Blu-ray) or
+        VIDEO_TS (DVD) directories.
+
+        Args:
+            volume_path: Path to the mounted volume
+            timeout: Maximum time to wait for disc to be readable
+
+        Returns:
+            'bluray', 'dvd', or 'cd'
+        """
+        path = Path(volume_path)
+
+        # Wait for disc to be readable (handles cold drive spin-up)
+        if not self._wait_for_disc_ready(volume_path, timeout):
+            logger.warning("Disc not readable, defaulting to CD")
+            return "cd"
+
+        # Now detect type
+        if (path / "BDMV").exists():
+            logger.debug("Detected Blu-ray (BDMV found)")
+            return "bluray"
+        elif (path / "VIDEO_TS").exists():
+            logger.debug("Detected DVD (VIDEO_TS found)")
+            return "dvd"
+        else:
+            logger.debug("No BDMV or VIDEO_TS found, assuming CD/audio")
+            return "cd"
 
     def on_disc_insert(self, device: str, volume_name: str, volume_path: str) -> None:
         """Handle disc insertion."""
