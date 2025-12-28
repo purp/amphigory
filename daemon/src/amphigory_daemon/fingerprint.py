@@ -80,15 +80,17 @@ def generate_fingerprint_from_drutil(
             hasher.update(f"track{i}:{start}:{size}".encode())
 
         if volume_name:
-            hasher.update(f"volume:{volume_name}".encode())
+            # Strip whitespace to avoid fingerprint variations from padding
+            hasher.update(f"volume:{volume_name.strip()}".encode())
 
         # Add human-readable prefix based on disc type
         prefix = _get_fingerprint_prefix(disc_type)
         fingerprint = f"{prefix}-{hasher.hexdigest()}"
+        clean_volume = volume_name.strip() if volume_name else None
         logger.info(
             f"Generated drutil fingerprint: {fingerprint} "
             f"(blocks={block_count}, type={media_type}, sessions={session_count}, "
-            f"tracks={len(track_infos)}, leadout={lead_out}, volume={volume_name})"
+            f"tracks={len(track_infos)}, leadout={lead_out}, volume={clean_volume})"
         )
         return fingerprint
 
