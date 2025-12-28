@@ -307,7 +307,8 @@ def build_scan_command(makemkv_path: Path) -> list[str]:
     Returns:
         Command list for subprocess
     """
-    return [str(makemkv_path), "-r", "info", "disc:0"]
+    # --cache=1024 optimizes for Blu-ray (works fine for DVD too)
+    return [str(makemkv_path), "-r", "--cache=1024", "info", "disc:0"]
 
 
 def build_rip_command(
@@ -326,9 +327,11 @@ def build_rip_command(
     Returns:
         Command list for subprocess
     """
+    # --cache=1024 optimizes for Blu-ray (works fine for DVD too)
     return [
         str(makemkv_path),
         "-r",
+        "--cache=1024",
         "mkv",
         "disc:0",
         str(track_number),

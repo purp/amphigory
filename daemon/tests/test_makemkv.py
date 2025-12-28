@@ -134,7 +134,7 @@ class TestBuildScanCommand:
 
         cmd = build_scan_command(Path("/usr/local/bin/makemkvcon"))
 
-        assert cmd == ["/usr/local/bin/makemkvcon", "-r", "info", "disc:0"]
+        assert cmd == ["/usr/local/bin/makemkvcon", "-r", "--cache=1024", "info", "disc:0"]
 
 
 class TestBuildRipCommand:
@@ -152,6 +152,7 @@ class TestBuildRipCommand:
         assert cmd == [
             "/usr/local/bin/makemkvcon",
             "-r",
+            "--cache=1024",
             "mkv",
             "disc:0",
             "0",
