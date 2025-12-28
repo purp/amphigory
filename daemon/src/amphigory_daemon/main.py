@@ -556,58 +556,6 @@ class AmphigoryDaemon(rumps.App):
                     "Please restart the daemon to apply changes.",
                 )
 
-    def _wake_disc(self, device: str, timeout: float = 10.0) -> bool:
-        """Wake up the disc drive using makemkvcon.
-
-        Runs `makemkvcon -r --cache=1 info disc:9999` which:
-        - Takes ~2 seconds (much faster than a full scan)
-        - Forces the drive to spin up
-        - Lists all drives with their device paths
-
-        The disc:9999 is a non-existent disc number, but makemkvcon still
-        queries all drives to report their status.
-
-        Args:
-            device: Device path (e.g., /dev/rdisk8) - used for logging
-            timeout: Maximum time to wait for makemkvcon
-
-        Returns:
-            True if drive woke up successfully, False otherwise
-        """
-        import subprocess
-
-        if not self.daemon_config or not self.daemon_config.makemkvcon_path:
-            logger.debug("No makemkvcon path configured, skipping active wake")
-            return False
-
-        makemkv_path = self.daemon_config.makemkvcon_path
-        # disc:9999 queries all drives without doing a full scan
-        cmd = [makemkv_path, "-r", "--cache=1", "info", "disc:9999"]
-
-        logger.info(f"Waking disc drive with: {' '.join(cmd)}")
-        try:
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                timeout=timeout,
-            )
-            # This command "fails" because disc:9999 doesn't exist,
-            # but it still wakes the drive and lists all drives
-            if device in result.stdout:
-                logger.info(f"Disc drive {device} woke up successfully")
-                return True
-            else:
-                # Drive woke but device not in output - still counts as success
-                logger.info("Disc drive wake completed")
-                return True
-        except subprocess.TimeoutExpired:
-            logger.warning(f"makemkvcon wake timed out after {timeout}s")
-            return False
-        except Exception as e:
-            logger.warning(f"Failed to wake disc: {e}")
-            return False
-
     def _detect_disc_type(self) -> str:
         """Detect disc type using drutil status.
 
@@ -662,9 +610,6 @@ class AmphigoryDaemon(rumps.App):
     def on_disc_insert(self, device: str, volume_name: str, volume_path: str) -> None:
         """Handle disc insertion."""
         logger.info(f"Disc inserted: {volume_name} at {device}, path: {volume_path}")
-
-        # Wake disc drive first (ensures it's spun up for cold-start detection)
-        self._wake_disc(device)
 
         # Determine disc type using drutil (more reliable than filesystem checks)
         disc_type = self._detect_disc_type()
