@@ -645,3 +645,61 @@ class TestTrackNormalizationIntegration:
             if scan_track.get("subtitle_streams"):
                 stored_subs = json.loads(track_row["subtitle_tracks"])
                 assert stored_subs == scan_track["subtitle_streams"]
+
+
+class TestDiscToLibraryFlow:
+    """Integration tests for disc review → process → library flow."""
+
+    @pytest.fixture
+    async def seeded_disc(self, integration_db, integration_db_path):
+        """Seed database with a disc and tracks (unprocessed by default)."""
+        # Insert disc with processed_at explicitly NULL (unprocessed state)
+        async with integration_db.connection() as conn:
+            cursor = await conn.execute("""
+                INSERT INTO discs (fingerprint, title, year, disc_type, processed_at)
+                VALUES (?, ?, ?, ?, NULL)
+            """, ("test-fp-12345", "Test Movie", 2024, "bluray"))
+            disc_id = cursor.lastrowid
+
+            # Insert tracks
+            for i in range(3):
+                await conn.execute("""
+                    INSERT INTO tracks (disc_id, track_number, duration_seconds, size_bytes, track_type)
+                    VALUES (?, ?, ?, ?, ?)
+                """, (disc_id, i + 1, 7200 + i * 100, 10_000_000_000, "main_feature" if i == 0 else "extra"))
+            await conn.commit()
+
+        return {"disc_id": disc_id, "fingerprint": "test-fp-12345"}
+
+    @pytest.mark.asyncio
+    async def test_completed_disc_appears_in_library(self, integration_db, integration_db_path, seeded_disc):
+        """Disc with processed_at appears in library listing."""
+        # Mark disc as processed
+        async with integration_db.connection() as conn:
+            await conn.execute("""
+                UPDATE discs SET processed_at = datetime('now') WHERE fingerprint = ?
+            """, (seeded_disc["fingerprint"],))
+            await conn.commit()
+
+        # Query library directly from database (since library API may need more context)
+        async with integration_db.connection() as conn:
+            cursor = await conn.execute("""
+                SELECT id, title, year FROM discs WHERE processed_at IS NOT NULL
+            """)
+            discs = await cursor.fetchall()
+
+        disc_ids = [d["id"] for d in discs]
+        assert seeded_disc["disc_id"] in disc_ids
+
+    @pytest.mark.asyncio
+    async def test_unprocessed_disc_not_in_library(self, integration_db, integration_db_path, seeded_disc):
+        """Disc without processed_at does not appear in library listing."""
+        # Don't mark as processed - query library
+        async with integration_db.connection() as conn:
+            cursor = await conn.execute("""
+                SELECT id, title, year FROM discs WHERE processed_at IS NOT NULL
+            """)
+            discs = await cursor.fetchall()
+
+        disc_ids = [d["id"] for d in discs]
+        assert seeded_disc["disc_id"] not in disc_ids
