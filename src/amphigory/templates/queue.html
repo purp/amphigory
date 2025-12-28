@@ -4,8 +4,16 @@
 
 {% block content %}
 <div class="queue-page">
+    <div class="queue-paused-banner" id="paused-banner" style="display: none;">
+        PAUSED - Queue processing is paused
+    </div>
     <header class="page-header">
-        <h1>Task Queue</h1>
+        <div class="page-header-content">
+            <h1>Task Queue</h1>
+            <button class="btn btn-small btn-secondary" id="pause-btn" onclick="togglePause()">
+                Pause Queue
+            </button>
+        </div>
     </header>
 
     <section class="current-task card" id="current-task-section">
@@ -48,6 +56,8 @@
 let tasks = { queued: [], in_progress: [], completed: [] };
 let elapsedInterval = null;
 let failedTasks = [];
+let expandedQueuedTasks = new Set(); // Track which queued tasks are expanded
+let isPaused = false; // Track queue pause state
 
 async function loadFailedTasks() {
     try {
@@ -94,7 +104,7 @@ function renderFailedTasks() {
                 <div class="task-header">
                     <span class="task-status status-failed">&#10007; failed</span>
                     <span class="task-type">${task.type || 'task'}</span>
-                    <span class="task-id" title="${task.id}">${task.id.substring(0, 12)}...</span>
+                    <span class="task-id" title="${task.id}">${formatTaskId(task.id)}</span>
                     <span class="task-expand" id="expand-failed-${task.id}">&#9660;</span>
                 </div>
                 <div class="task-error-summary">
@@ -180,6 +190,18 @@ function formatDateTime(dateStr) {
     });
 }
 
+function formatTaskId(taskId) {
+    // Format task ID to show last 11 chars before hyphen + hyphen + type
+    // e.g., "20251227T204148.623581-rip" -> "4148.623581-rip"
+    // Pattern should match: \d{4}\.\d{6}-[^\.]+
+    const id = taskId.replace(/\.json$/, '');
+    const hyphenIndex = id.lastIndexOf('-');
+    if (hyphenIndex < 11) return id; // Fallback for unexpected format
+    const prefix = id.substring(hyphenIndex - 11, hyphenIndex);
+    const suffix = id.substring(hyphenIndex);
+    return prefix + suffix;
+}
+
 function formatElapsed(startDateStr) {
     const start = new Date(startDateStr);
     const now = new Date();
@@ -201,6 +223,12 @@ async function loadTasks() {
     try {
         const response = await fetch('/api/tasks');
         const data = await response.json();
+
+        // Update pause state from API response
+        if (data.paused !== undefined) {
+            isPaused = data.paused;
+            updatePauseUI();
+        }
 
         // Group by status
         tasks.queued = data.tasks.filter(t => t.status === 'queued');
@@ -237,7 +265,7 @@ function renderCurrentTask() {
         <div class="task-item task-running">
             <div class="task-header">
                 <span class="task-type">${task.type}</span>
-                <span class="task-id" title="${task.id}">${task.id.substring(0, 12)}...</span>
+                <span class="task-id" title="${task.id}">${formatTaskId(task.id)}</span>
             </div>
             ${hasStartTime ? `
             <div class="task-timing">
@@ -246,9 +274,9 @@ function renderCurrentTask() {
             ` : ''}
             <div class="progress-container">
                 <div class="progress-bar">
-                    <div class="progress-bar-fill" id="progress-${task.id}" style="width: 0%"></div>
+                    <div class="progress-bar-fill" id="progress-${task.id}" style="width: ${task.progress_percent || 0}%"></div>
                 </div>
-                <span class="progress-text" id="progress-text-${task.id}">Processing...</span>
+                <span class="progress-text" id="progress-text-${task.id}">${task.progress_percent ? task.progress_percent + '%' : 'Processing...'}</span>
             </div>
         </div>
     `;
@@ -272,19 +300,38 @@ function renderQueuedTasks() {
         return;
     }
 
-    container.innerHTML = tasks.queued.map((task, index) => `
-        <div class="task-item task-queued">
-            <div class="task-header">
-                <span class="task-position">#${index + 1}</span>
-                <span class="task-type">${task.type}</span>
-                <span class="task-id">${task.id.substring(0, 8)}...</span>
+    container.innerHTML = tasks.queued.map((task, index) => {
+        let detailsHtml = `
+            <div class="detail-row"><span class="detail-label">Task ID:</span> ${task.id}</div>
+            <div class="detail-row"><span class="detail-label">Created:</span> ${formatDateTime(task.created_at)}</div>
+        `;
+
+        if (task.type === 'rip') {
+            if (task.output_filename) {
+                detailsHtml += `<div class="detail-row"><span class="detail-label">Output:</span> ${task.output_filename}</div>`;
+            }
+            if (task.track_number !== undefined) {
+                detailsHtml += `<div class="detail-row"><span class="detail-label">Track:</span> ${task.track_number}</div>`;
+            }
+        }
+
+        // Check if this task was expanded before
+        const wasExpanded = expandedQueuedTasks.has(task.id);
+
+        return `
+            <div class="task-item task-queued" onclick="toggleQueuedTaskDetails('${task.id}')">
+                <div class="task-header">
+                    <span class="task-position">#${index + 1}</span>
+                    <span class="task-type">${task.type}</span>
+                    <span class="task-id" title="${task.id}">${formatTaskId(task.id)}</span>
+                    <span class="task-expand" id="expand-queued-${task.id}">${wasExpanded ? '&#9650;' : '&#9660;'}</span>
+                </div>
+                <div class="task-details" id="details-queued-${task.id}" style="display: ${wasExpanded ? 'block' : 'none'};">
+                    ${detailsHtml}
+                </div>
             </div>
-            <div class="task-meta">
-                ${task.type === 'rip' ? '<span class="task-detail">Rip track</span>' : ''}
-                ${task.type === 'scan' ? '<span class="task-detail">Scan disc</span>' : ''}
-            </div>
-        </div>
-    `).join('');
+        `;
+    }).join('');
 }
 
 function renderCompletedTasks() {
@@ -295,8 +342,14 @@ function renderCompletedTasks() {
         return;
     }
 
-    // Show most recent first, limit to 10
-    const recentTasks = tasks.completed.slice(0, 10);
+    // Sort by completed_at descending (most recent first), then limit to 10
+    const recentTasks = tasks.completed
+        .sort((a, b) => {
+            const aTime = a.completed_at ? new Date(a.completed_at).getTime() : 0;
+            const bTime = b.completed_at ? new Date(b.completed_at).getTime() : 0;
+            return bTime - aTime;
+        })
+        .slice(0, 10);
 
     container.innerHTML = recentTasks.map(task => {
         const statusIcon = task.status === 'success' ? '&#10003;' : '&#10007;';
@@ -327,7 +380,7 @@ function renderCompletedTasks() {
                 <div class="task-header">
                     <span class="task-status status-${task.status}">${statusIcon} ${task.status}</span>
                     <span class="task-type">${task.type || 'task'}</span>
-                    <span class="task-id">${task.id.substring(0, 12)}...</span>
+                    <span class="task-id" title="${task.id}">${formatTaskId(task.id)}</span>
                     <span class="task-expand" id="expand-${task.id}">&#9660;</span>
                 </div>
                 <div class="task-details" id="details-${task.id}" style="display: none;">
@@ -351,9 +404,65 @@ function toggleTaskDetails(taskId) {
     }
 }
 
+function toggleQueuedTaskDetails(taskId) {
+    const details = document.getElementById(`details-queued-${taskId}`);
+    const expand = document.getElementById(`expand-queued-${taskId}`);
+
+    if (details.style.display === 'none') {
+        details.style.display = 'block';
+        expand.innerHTML = '&#9650;';
+        expandedQueuedTasks.add(taskId);
+    } else {
+        details.style.display = 'none';
+        expand.innerHTML = '&#9660;';
+        expandedQueuedTasks.delete(taskId);
+    }
+}
+
 function toggleCompleted() {
     const container = document.getElementById('completed-tasks');
     container.classList.toggle('collapsed');
+}
+
+function updatePauseUI() {
+    const banner = document.getElementById('paused-banner');
+    const btn = document.getElementById('pause-btn');
+
+    if (isPaused) {
+        banner.style.display = 'block';
+        btn.textContent = 'Resume Queue';
+        btn.classList.add('btn-primary');
+        btn.classList.remove('btn-secondary');
+    } else {
+        banner.style.display = 'none';
+        btn.textContent = 'Pause Queue';
+        btn.classList.remove('btn-primary');
+        btn.classList.add('btn-secondary');
+    }
+}
+
+async function togglePause() {
+    const btn = document.getElementById('pause-btn');
+    btn.disabled = true;
+
+    try {
+        const endpoint = isPaused ? '/api/tasks/resume' : '/api/tasks/pause';
+        const response = await fetch(endpoint, { method: 'POST' });
+
+        if (response.ok) {
+            // Optimistic update
+            isPaused = !isPaused;
+            updatePauseUI();
+        } else {
+            const error = await response.json();
+            alert('Failed to ' + (isPaused ? 'resume' : 'pause') + ' queue: ' + (error.detail || 'Unknown error'));
+        }
+    } catch (error) {
+        console.error('Error toggling pause:', error);
+        alert('Error toggling queue pause state');
+    } finally {
+        btn.disabled = false;
+    }
 }
 
 // Listen for progress updates via WebSocket
