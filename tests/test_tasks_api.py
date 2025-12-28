@@ -1061,6 +1061,23 @@ class TestFailedTasksAPI:
         assert task["started_at"] == "2025-12-26T18:00:00.000000"
         assert task["completed_at"] == "2025-12-26T18:00:05.000000"
 
+    def test_get_failed_tasks_includes_pause_status(self, client, tasks_dir):
+        """GET /api/tasks/failed response includes paused field."""
+        # When no PAUSED file exists
+        response = client.get("/api/tasks/failed")
+        assert response.status_code == 200
+        data = response.json()
+        assert "paused" in data
+        assert data["paused"] is False
+
+        # Create PAUSED marker
+        paused_file = tasks_dir / "PAUSED"
+        paused_file.write_text("2025-12-27T12:00:00.000000")
+
+        response = client.get("/api/tasks/failed")
+        data = response.json()
+        assert data["paused"] is True
+
 
 class TestPauseStatusAPI:
     """Tests for pause status endpoints."""
