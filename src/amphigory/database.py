@@ -80,7 +80,6 @@ CREATE TABLE IF NOT EXISTS tracks (
     size_bytes INTEGER,
     ripped_path TEXT,
     transcoded_path TEXT,
-    preset_id INTEGER REFERENCES presets(id),
     status TEXT DEFAULT 'pending',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
 
@@ -109,18 +108,6 @@ CREATE TABLE IF NOT EXISTS tracks (
     classification_score REAL,
     -- Final path after insertion into Plex library
     inserted_path TEXT
-);
-
--- Handbrake presets with versioning
-CREATE TABLE IF NOT EXISTS presets (
-    id INTEGER PRIMARY KEY,
-    name TEXT NOT NULL,
-    version TEXT NOT NULL,
-    disc_type TEXT,
-    preset_json TEXT NOT NULL,
-    is_active BOOLEAN DEFAULT TRUE,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(name, version)
 );
 
 -- Create indexes for common queries
