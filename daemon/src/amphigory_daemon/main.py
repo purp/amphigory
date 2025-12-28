@@ -776,9 +776,10 @@ class AmphigoryDaemon(rumps.App):
             if result.tracks:
                 original_count = len(result.tracks)
 
-                # Deduplicate by segment map
-                deduplicated = deduplicate_by_segment(result.tracks)
-                result.duplicates_removed = original_count - len(deduplicated)
+                # Deduplication removed - MakeMKV already handles true duplicates
+                # and our logic was incorrectly removing valid tracks with simple segment maps
+                deduplicated = result.tracks
+                result.duplicates_removed = 0
 
                 # Classify tracks
                 classified = classify_tracks(deduplicated)
