@@ -987,7 +987,7 @@ body {
 }
 
 .track-status .status-icon.pending {
-    opacity: 0.3;
+    opacity: 0.2;
 }
 
 .track-status .status-icon.missing::after {
