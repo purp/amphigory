@@ -1,13 +1,13 @@
 """Playwright E2E test configuration."""
 
-import asyncio
 import os
 import socket
+import subprocess
+import sys
+import time
 import pytest
-from multiprocessing import Process
-from pathlib import Path
 
-import uvicorn
+import httpx
 
 
 def get_free_port():
@@ -15,14 +15,6 @@ def get_free_port():
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
         s.bind(("127.0.0.1", 0))
         return s.getsockname()[1]
-
-
-@pytest.fixture(scope="session")
-def event_loop():
-    """Create event loop for async fixtures."""
-    loop = asyncio.new_event_loop()
-    yield loop
-    loop.close()
 
 
 @pytest.fixture(scope="session")
@@ -35,19 +27,29 @@ def test_server(tmp_path_factory):
     env = os.environ.copy()
     env["AMPHIGORY_DATA"] = str(tmp_path)
     env["AMPHIGORY_DATABASE"] = str(tmp_path / "test.db")
+    env["PYTHONPATH"] = "src"
 
-    def run_server():
-        os.environ.update(env)
-        # Import app after setting environment
-        from amphigory.main import app
-        uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
+    # Create tasks directories (needed by app startup)
+    tasks_dir = tmp_path / "tasks"
+    (tasks_dir / "queued").mkdir(parents=True)
+    (tasks_dir / "in_progress").mkdir(parents=True)
+    (tasks_dir / "complete").mkdir(parents=True)
 
-    process = Process(target=run_server)
-    process.start()
+    # Start uvicorn as subprocess
+    process = subprocess.Popen(
+        [
+            sys.executable, "-m", "uvicorn",
+            "amphigory.main:app",
+            "--host", "127.0.0.1",
+            "--port", str(port),
+            "--log-level", "warning",
+        ],
+        env=env,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
 
     # Wait for server to be ready
-    import time
-    import httpx
     base_url = f"http://127.0.0.1:{port}"
     for _ in range(30):
         try:
@@ -57,12 +59,16 @@ def test_server(tmp_path_factory):
             time.sleep(0.2)
     else:
         process.terminate()
-        raise RuntimeError("Test server failed to start")
+        stdout, stderr = process.communicate(timeout=5)
+        raise RuntimeError(f"Test server failed to start.\nstdout: {stdout.decode()}\nstderr: {stderr.decode()}")
 
     yield base_url
 
     process.terminate()
-    process.join(timeout=5)
+    try:
+        process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        process.kill()
 
 
 @pytest.fixture(scope="session")
