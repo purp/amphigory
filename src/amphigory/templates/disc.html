@@ -44,6 +44,11 @@
             </div>
         </div>
         <div class="form-row">
+            <label for="disc-folder">Disc Folder:</label>
+            <input type="text" id="disc-folder" name="disc_folder"
+                   class="setting-input" placeholder="Auto-generated from title">
+        </div>
+        <div class="form-row">
             <label></label>
             <button type="button" class="btn btn-small" onclick="setTrackNames()">Set Track Names</button>
         </div>
@@ -78,13 +83,6 @@
                     <!-- Tracks populated via JavaScript -->
                 </tbody>
             </table>
-
-            <div class="rip-options">
-                <div class="option-row">
-                    <label for="output-dir">Output Directory:</label>
-                    <input type="text" id="output-dir" name="output_dir" value="" class="setting-input" placeholder="Loading...">
-                </div>
-            </div>
 
             <div class="form-actions">
                 <button type="button" class="btn btn-secondary" id="save-tracks-btn" onclick="saveTrackInfo()" disabled>
@@ -126,6 +124,20 @@ function sanitizeFilename(name) {
         result = result.split(char).join('');
     }
     return result;
+}
+
+function generateDiscFolder() {
+    const title = document.getElementById('disc-title').value.trim();
+    const year = document.getElementById('disc-year').value.trim();
+    const imdbId = window.selectedIMDBId;
+
+    if (!title || !year) return '';
+
+    let folder = sanitizeFilename(`${title} (${year})`);
+    if (imdbId) {
+        folder += ` {imdb-${imdbId}}`;
+    }
+    return folder;
 }
 
 function generateTrackFilename(trackType, movieTitle, year, trackName, language) {
@@ -1097,7 +1109,7 @@ async function submitRipTasks(event) {
 
     const selectedTracks = Array.from(document.querySelectorAll('input[name="tracks"]:checked'))
         .map(cb => parseInt(cb.value));
-    const outputDir = document.getElementById('output-dir').value;
+    const discFolder = document.getElementById('disc-folder').value;
     const discTitle = document.getElementById('disc-title').value;
     const discYear = document.getElementById('disc-year').value;
 
@@ -1145,7 +1157,7 @@ async function submitRipTasks(event) {
             tracksToProcess.push({
                 track_number: trackNumber,
                 output_filename: outputFilename,
-                output_directory: outputDir ? outputDir + '/' : null,
+                output_directory: discFolder ? discFolder + '/' : null,
                 preset: presetSelect?.value || null,
                 expected_size_bytes: track?.size_bytes || null,
                 expected_duration: track?.duration || null,
@@ -1309,6 +1321,7 @@ async function selectTMDBResult(tmdbId, title, year) {
             if (externalIds.imdb_id) {
                 window.selectedIMDBId = externalIds.imdb_id;
                 console.log('IMDB ID:', externalIds.imdb_id);
+                document.getElementById('disc-folder').value = generateDiscFolder();
 
                 // Update with IMDB link
                 const imdbUrl = `https://www.imdb.com/title/${externalIds.imdb_id}/`;
@@ -1432,31 +1445,6 @@ function setTrackNames() {
     }
 }
 
-// Load config and set default output directory
-async function loadConfig() {
-    try {
-        const response = await fetch('/config.json');
-        if (response.ok) {
-            const config = await response.json();
-            const outputDirInput = document.getElementById('output-dir');
-            if (config.ripped_directory) {
-                outputDirInput.value = config.ripped_directory;
-                outputDirInput.placeholder = config.ripped_directory;
-            } else {
-                // Fallback to default if not in config
-                outputDirInput.value = '/media/ripped';
-                outputDirInput.placeholder = '/media/ripped';
-            }
-        }
-    } catch (error) {
-        console.error('Error loading config:', error);
-        // Fallback to default on error
-        const outputDirInput = document.getElementById('output-dir');
-        outputDirInput.value = '/media/ripped';
-        outputDirInput.placeholder = '/media/ripped';
-    }
-}
-
 // Save disc info to database
 async function saveDiscInfo() {
     const fingerprint = scanResult?.fingerprint || window.knownDiscInfo?.fingerprint;
@@ -1471,6 +1459,12 @@ async function saveDiscInfo() {
     if (!title || !year) {
         alert('Please enter title and year');
         return;
+    }
+
+    // Auto-generate folder name if empty
+    const discFolderInput = document.getElementById('disc-folder');
+    if (!discFolderInput.value) {
+        discFolderInput.value = generateDiscFolder();
     }
 
     try {
@@ -1579,7 +1573,6 @@ async function saveTrackInfo() {
 document.addEventListener('DOMContentLoaded', async () => {
     // Load presets first, then populate dropdowns if scan is already displayed
     await loadPresets();
-    loadConfig();
     checkDiscStatus();
     // In case scan result was cached and displayed before presets loaded
     populateAllPresetDropdowns();
