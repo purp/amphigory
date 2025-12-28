@@ -2,6 +2,7 @@
 
 import hashlib
 import logging
+import subprocess
 from pathlib import Path
 from typing import Optional
 
@@ -11,6 +12,86 @@ logger = logging.getLogger(__name__)
 class FingerprintError(Exception):
     """Error generating disc fingerprint."""
     pass
+
+
+def generate_fingerprint_from_drutil(
+    disc_type: str,
+    volume_name: Optional[str] = None,
+) -> str:
+    """
+    Generate a fingerprint using drutil (no filesystem access required).
+
+    Uses disc metadata from drutil status -xml:
+    - blockCount (disc size in blocks) - unique per disc pressing
+    - mediaType (DVD-ROM, BD-ROM, etc.)
+    - sessionCount
+    - trackCount
+
+    Args:
+        disc_type: "cd", "dvd", or "bluray"
+        volume_name: Optional volume name to include
+
+    Returns:
+        Hex string fingerprint
+
+    Raises:
+        FingerprintError: If drutil fails
+    """
+    try:
+        result = subprocess.run(
+            ["drutil", "status", "-xml"],
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+
+        if result.returncode != 0:
+            raise FingerprintError(f"drutil status failed: {result.stderr}")
+
+        # Parse key fields from XML
+        output = result.stdout
+        block_count = _extract_xml_attr(output, "usedSpace", "blockCount")
+        media_type = _extract_xml_attr(output, "mediaType", "value")
+        session_count = _extract_xml_attr(output, "sessionCount", "value")
+        track_count = _extract_xml_attr(output, "trackCount", "value")
+
+        if not block_count:
+            raise FingerprintError("Could not extract blockCount from drutil")
+
+        # Build fingerprint from disc metadata
+        hasher = hashlib.sha256()
+        hasher.update(f"type:{disc_type}".encode())
+        hasher.update(f"blocks:{block_count}".encode())
+        if media_type:
+            hasher.update(f"media:{media_type}".encode())
+        if session_count:
+            hasher.update(f"sessions:{session_count}".encode())
+        if track_count:
+            hasher.update(f"tracks:{track_count}".encode())
+        if volume_name:
+            hasher.update(f"volume:{volume_name}".encode())
+
+        fingerprint = hasher.hexdigest()
+        logger.info(
+            f"Generated drutil fingerprint: {fingerprint[:16]}... "
+            f"(blocks={block_count}, type={media_type})"
+        )
+        return fingerprint
+
+    except subprocess.TimeoutExpired:
+        raise FingerprintError("drutil status timed out")
+    except Exception as e:
+        if isinstance(e, FingerprintError):
+            raise
+        raise FingerprintError(f"Failed to generate drutil fingerprint: {e}")
+
+
+def _extract_xml_attr(xml: str, element: str, attr: str) -> Optional[str]:
+    """Extract an attribute value from a simple XML element."""
+    import re
+    pattern = rf'<{element}[^>]*{attr}="([^"]*)"'
+    match = re.search(pattern, xml)
+    return match.group(1) if match else None
 
 
 def generate_fingerprint(

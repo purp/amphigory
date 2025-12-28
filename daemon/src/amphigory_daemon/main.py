@@ -50,7 +50,7 @@ from .dialogs import ConfigDialog
 from .discovery import discover_makemkvcon
 from .disc import DiscDetector
 from .drive import OpticalDrive, DriveState
-from .fingerprint import generate_fingerprint, FingerprintError
+from .fingerprint import generate_fingerprint_from_drutil, FingerprintError
 from .icons import ActivityState, StatusOverlay, get_icon_name
 from .makemkv import (
     Progress,
@@ -674,9 +674,9 @@ class AmphigoryDaemon(rumps.App):
             self.optical_drive.device = device
             self.optical_drive.insert_disc(volume=volume_name, disc_type=disc_type)
 
-            # Generate fingerprint
+            # Generate fingerprint using drutil (no filesystem access needed)
             try:
-                fingerprint = generate_fingerprint(volume_path, disc_type, volume_name)
+                fingerprint = generate_fingerprint_from_drutil(disc_type, volume_name)
                 self.optical_drive.set_fingerprint(fingerprint)
                 logger.info(f"Generated fingerprint: {fingerprint[:16]}...")
 

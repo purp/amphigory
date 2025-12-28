@@ -3,7 +3,11 @@
 import pytest
 from pathlib import Path
 from unittest.mock import patch, MagicMock
-from amphigory_daemon.fingerprint import generate_fingerprint, FingerprintError
+from amphigory_daemon.fingerprint import (
+    generate_fingerprint,
+    generate_fingerprint_from_drutil,
+    FingerprintError,
+)
 
 
 class TestFingerprintGeneration:
@@ -82,3 +86,64 @@ class TestFingerprintGeneration:
         # For now, just check it doesn't crash
         result = generate_fingerprint(str(tmp_path), "cd", volume_name="AUDIO_CD")
         assert isinstance(result, str)
+
+
+class TestDrutilFingerprint:
+    """Tests for generate_fingerprint_from_drutil function."""
+
+    def test_returns_string_fingerprint(self):
+        """generate_fingerprint_from_drutil returns a string."""
+        drutil_xml = '''<?xml version="1.0"?>
+            <statusdoc>
+                <usedSpace blockCount="3940480" msf="875:39:55"/>
+                <mediaType value="DVD-ROM"/>
+                <sessionCount value="1"/>
+                <trackCount value="1"/>
+            </statusdoc>
+        '''
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stdout=drutil_xml, stderr="")
+            result = generate_fingerprint_from_drutil("dvd", "TEST_DISC")
+
+        assert isinstance(result, str)
+        assert len(result) == 64  # SHA256 hex
+
+    def test_different_block_counts_produce_different_fingerprints(self):
+        """Different block counts produce different fingerprints."""
+        drutil_xml1 = '<usedSpace blockCount="3940480"/><mediaType value="DVD-ROM"/>'
+        drutil_xml2 = '<usedSpace blockCount="4000000"/><mediaType value="DVD-ROM"/>'
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stdout=drutil_xml1, stderr="")
+            fp1 = generate_fingerprint_from_drutil("dvd")
+
+            mock_run.return_value = MagicMock(returncode=0, stdout=drutil_xml2, stderr="")
+            fp2 = generate_fingerprint_from_drutil("dvd")
+
+        assert fp1 != fp2
+
+    def test_same_inputs_produce_same_fingerprint(self):
+        """Same inputs produce same fingerprint (deterministic)."""
+        drutil_xml = '<usedSpace blockCount="3940480"/><mediaType value="DVD-ROM"/>'
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stdout=drutil_xml, stderr="")
+            fp1 = generate_fingerprint_from_drutil("dvd", "TEST")
+            fp2 = generate_fingerprint_from_drutil("dvd", "TEST")
+
+        assert fp1 == fp2
+
+    def test_raises_error_when_drutil_fails(self):
+        """Raises FingerprintError when drutil fails."""
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=1, stdout="", stderr="error")
+            with pytest.raises(FingerprintError):
+                generate_fingerprint_from_drutil("dvd")
+
+    def test_raises_error_when_no_block_count(self):
+        """Raises FingerprintError when blockCount not in output."""
+        drutil_xml = '<mediaType value="DVD-ROM"/>'  # No blockCount
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(returncode=0, stdout=drutil_xml, stderr="")
+            with pytest.raises(FingerprintError):
+                generate_fingerprint_from_drutil("dvd")
