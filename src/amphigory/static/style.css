@@ -265,6 +265,10 @@ body {
     max-width: 400px;
 }
 
+#disc-folder {
+    max-width: 600px;
+}
+
 .setting-input-short {
     flex: 0;
     width: 100px;

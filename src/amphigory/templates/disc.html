@@ -716,7 +716,7 @@ async function startScan() {
 
 // Poll for scan result
 async function pollForScanResult(taskId) {
-    const maxAttempts = 60;
+    const maxAttempts = 300;  // 300 × 2s = 10 minutes
     let attempts = 0;
 
     const poll = async () => {
