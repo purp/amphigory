@@ -1,6 +1,8 @@
 """Disc detection using macOS notifications."""
 
 import logging
+import subprocess
+import time
 from typing import Callable, Optional, Tuple
 
 # PyObjC imports - only available on macOS
@@ -175,6 +177,37 @@ class DiscDetector(NSObject):
         except Exception as e:
             logger.error(f"Error handling unmount notification: {e}")
 
+    def _run_diskutil(self, target: str, max_retries: int = 3) -> Optional[subprocess.CompletedProcess]:
+        """
+        Run diskutil info with retry logic for timeouts.
+
+        Args:
+            target: Volume path or device path to query
+            max_retries: Number of attempts before giving up
+
+        Returns:
+            CompletedProcess on success, None on failure
+        """
+        for attempt in range(max_retries):
+            try:
+                result = subprocess.run(
+                    ["diskutil", "info", target],
+                    capture_output=True,
+                    text=True,
+                    timeout=5,
+                )
+                return result
+            except subprocess.TimeoutExpired:
+                if attempt < max_retries - 1:
+                    logger.debug(f"diskutil timeout for {target}, retrying ({attempt + 1}/{max_retries})")
+                    time.sleep(1)
+                else:
+                    logger.warning(f"diskutil timed out after {max_retries} attempts for {target}")
+            except Exception as e:
+                logger.error(f"diskutil error for {target}: {e}")
+                break
+        return None
+
     def _get_device_for_volume(self, volume_path: str) -> Optional[str]:
         """
         Get the device path for a mounted volume.
@@ -185,34 +218,24 @@ class DiscDetector(NSObject):
         Returns:
             Device path (e.g., /dev/rdisk4) or None
         """
-        import subprocess
+        import re
 
-        try:
-            result = subprocess.run(
-                ["diskutil", "info", volume_path],
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
-            if result.returncode != 0:
-                return None
+        result = self._run_diskutil(volume_path)
+        if not result or result.returncode != 0:
+            return None
 
-            for line in result.stdout.split("\n"):
-                if "Device Node:" in line:
-                    # Line format: "   Device Node:              /dev/disk4s0"
-                    parts = line.split(":")
-                    if len(parts) >= 2:
-                        device = parts[1].strip()
-                        # Convert to raw device
-                        if device.startswith("/dev/disk"):
-                            device = device.replace("/dev/disk", "/dev/rdisk")
-                            # Remove slice suffix if present (e.g., s0, s1)
-                            # Use regex to match only trailing slice numbers
-                            import re
-                            device = re.sub(r's\d+$', '', device)
-                        return device
-        except Exception as e:
-            logger.error(f"Error getting device for volume: {e}")
+        for line in result.stdout.split("\n"):
+            if "Device Node:" in line:
+                # Line format: "   Device Node:              /dev/disk4s0"
+                parts = line.split(":")
+                if len(parts) >= 2:
+                    device = parts[1].strip()
+                    # Convert to raw device
+                    if device.startswith("/dev/disk"):
+                        device = device.replace("/dev/disk", "/dev/rdisk")
+                        # Remove slice suffix if present (e.g., s0, s1)
+                        device = re.sub(r's\d+$', '', device)
+                    return device
 
         return None
 
@@ -226,42 +249,29 @@ class DiscDetector(NSObject):
         Returns:
             True if optical drive
         """
-        import subprocess
-
-        try:
-            # Use diskutil to check device type
-            result = subprocess.run(
-                ["diskutil", "info", device],
-                capture_output=True,
-                text=True,
-                timeout=5,
-            )
-            if result.returncode != 0:
-                logger.info(f"diskutil info {device} failed with code {result.returncode}")
-                logger.info(f"stderr: {result.stderr}")
-                return False
-
-            output = result.stdout.lower()
-            logger.debug(f"diskutil info output for {device}:\n{result.stdout}")
-
-            # Look for optical disc indicators
-            optical_indicators = [
-                "bd-rom",
-                "bd-re",
-                "dvd",
-                "cd-rom",
-                "cd-r",
-                "optical",
-                "blu-ray",
-            ]
-            found = [ind for ind in optical_indicators if ind in output]
-            if found:
-                logger.info(f"Found optical indicators: {found}")
-            return len(found) > 0
-
-        except Exception as e:
-            logger.error(f"Error checking if device is optical: {e}")
+        result = self._run_diskutil(device)
+        if not result or result.returncode != 0:
+            if result:
+                logger.debug(f"diskutil info {device} failed with code {result.returncode}")
             return False
+
+        output = result.stdout.lower()
+        logger.debug(f"diskutil info output for {device}:\n{result.stdout}")
+
+        # Look for optical disc indicators
+        optical_indicators = [
+            "bd-rom",
+            "bd-re",
+            "dvd",
+            "cd-rom",
+            "cd-r",
+            "optical",
+            "blu-ray",
+        ]
+        found = [ind for ind in optical_indicators if ind in output]
+        if found:
+            logger.debug(f"Found optical indicators: {found}")
+        return len(found) > 0
 
     def get_current_disc(self) -> Optional[Tuple[str, str, str]]:
         """
