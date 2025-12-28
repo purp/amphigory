@@ -468,3 +468,70 @@ class TestProgressRelay:
                 assert msg["type"] == "progress"
                 assert msg["task_id"] == "test-task-123"
                 assert msg["percent"] == 45
+
+
+class TestScanResultProcessor:
+    """Tests for automatic scan result processing."""
+
+    @pytest.mark.asyncio
+    async def test_processor_starts_and_stops(self, tmp_path):
+        """Processor can start and stop cleanly."""
+        from amphigory.main import ScanResultProcessor
+
+        processor = ScanResultProcessor(tasks_dir=tmp_path, poll_interval=0.1)
+        await processor.start()
+        assert processor._running is True
+        assert processor._task is not None
+
+        await processor.stop()
+        assert processor._running is False
+
+    @pytest.mark.asyncio
+    async def test_processor_ignores_invalid_scan_results(self, tmp_path):
+        """Processor skips scan results without required fields."""
+        import json
+        from amphigory.main import ScanResultProcessor
+
+        # Create complete directory with invalid scan result
+        complete_dir = tmp_path / "complete"
+        complete_dir.mkdir()
+        (complete_dir / "test-scan.json").write_text(json.dumps({
+            "id": "test-scan",
+            "type": "scan",
+            "result": {"some": "data"}  # Missing disc_name
+        }))
+
+        processor = ScanResultProcessor(tasks_dir=tmp_path, poll_interval=0.1)
+        await processor._process_completed_scans()
+
+        # Task should be marked as processed (ignored)
+        assert "test-scan" in processor._processed
+
+    @pytest.mark.asyncio
+    async def test_processor_skips_without_fingerprint(self, tmp_path):
+        """Processor skips processing when no fingerprint available."""
+        import json
+        from amphigory.main import ScanResultProcessor
+
+        # Create complete directory with valid scan result
+        complete_dir = tmp_path / "complete"
+        complete_dir.mkdir()
+        (complete_dir / "test-scan.json").write_text(json.dumps({
+            "id": "test-scan",
+            "type": "scan",
+            "result": {
+                "disc_name": "Test Disc",
+                "disc_type": "bluray",
+                "tracks": []
+            }
+        }))
+
+        processor = ScanResultProcessor(tasks_dir=tmp_path, poll_interval=0.1)
+
+        # Mock _get_current_fingerprint to return None (no disc)
+        with patch("amphigory.api.disc._get_current_fingerprint", new_callable=AsyncMock) as mock_fp:
+            mock_fp.return_value = None
+            await processor._process_completed_scans()
+
+        # Task should NOT be marked as processed (will retry later)
+        assert "test-scan" not in processor._processed

@@ -54,6 +54,30 @@ def get_tasks_dir() -> Path:
     return data_dir / "tasks"
 
 
+def get_active_scan_task() -> Optional[dict]:
+    """Check if there's an active scan task (queued or in_progress).
+
+    Returns the task data if found, None otherwise.
+    """
+    tasks_dir = get_tasks_dir()
+
+    # Check in_progress first
+    in_progress_dir = tasks_dir / "in_progress"
+    if in_progress_dir.exists():
+        for task_file in in_progress_dir.glob("*-scan.json"):
+            with open(task_file) as f:
+                return json.load(f)
+
+    # Check queued
+    queued_dir = tasks_dir / "queued"
+    if queued_dir.exists():
+        for task_file in queued_dir.glob("*-scan.json"):
+            with open(task_file) as f:
+                return json.load(f)
+
+    return None
+
+
 async def _get_current_fingerprint() -> Optional[str]:
     """Get fingerprint of currently inserted disc by querying daemon."""
     for daemon_id in _daemons.keys():
@@ -122,37 +146,73 @@ async def get_disc_status(request: Request) -> DiscStatusResponse:
     return DiscStatusResponse(has_disc=False)
 
 
+@router.get("/scan-status")
+async def get_scan_status():
+    """Check if there's an active scan task.
+
+    Returns task info if scan is queued/in_progress, 404 otherwise.
+    """
+    active_scan = get_active_scan_task()
+    if active_scan:
+        return {"task_id": active_scan["id"], "status": "scanning"}
+    raise HTTPException(status_code=404, detail="No active scan")
+
+
 @router.post("/scan", status_code=status.HTTP_202_ACCEPTED)
-async def scan_current_disc(request: Request) -> ScanTaskResponse:
+async def scan_current_disc(request: Request):
     """Create a scan task for the daemon to process.
 
     Returns immediately with task_id. Poll /api/disc/scan-result for results.
+
+    For HTMX requests (from dashboard), returns HTML and redirects to disc review.
     """
-    tasks_dir = get_tasks_dir()
-    (tasks_dir / "queued").mkdir(parents=True, exist_ok=True)
-
-    task_id = generate_task_id("scan")
-    task_data = {
-        "id": task_id,
-        "type": "scan",
-        "created_at": datetime.now().isoformat(),
-    }
-
-    # Write task file to queued/
-    task_file = tasks_dir / "queued" / f"{task_id}.json"
-    with open(task_file, "w") as f:
-        json.dump(task_data, f, indent=2)
-
-    # Update tasks.json for ordering
-    tasks_json = tasks_dir / "tasks.json"
-    if tasks_json.exists():
-        with open(tasks_json) as f:
-            task_order = json.load(f)
+    # Check if there's already an active scan
+    active_scan = get_active_scan_task()
+    if active_scan:
+        task_id = active_scan["id"]
     else:
-        task_order = []
-    task_order.append(task_id)
-    with open(tasks_json, "w") as f:
-        json.dump(task_order, f, indent=2)
+        # Create new scan task
+        tasks_dir = get_tasks_dir()
+        (tasks_dir / "queued").mkdir(parents=True, exist_ok=True)
+
+        task_id = generate_task_id("scan")
+        task_data = {
+            "id": task_id,
+            "type": "scan",
+            "created_at": datetime.now().isoformat(),
+        }
+
+        # Write task file to queued/
+        task_file = tasks_dir / "queued" / f"{task_id}.json"
+        with open(task_file, "w") as f:
+            json.dump(task_data, f, indent=2)
+
+        # Update tasks.json for ordering
+        tasks_json = tasks_dir / "tasks.json"
+        if tasks_json.exists():
+            with open(tasks_json) as f:
+                task_order = json.load(f)
+        else:
+            task_order = []
+        task_order.append(task_id)
+        with open(tasks_json, "w") as f:
+            json.dump(task_order, f, indent=2)
+
+    # Check if this is an HTMX request (from dashboard)
+    is_htmx = request.headers.get("HX-Request") == "true"
+    if is_htmx:
+        # Return HTML that shows scanning status and redirects to disc review page
+        # Use 200 status since HTMX may not swap content for other status codes
+        return HTMLResponse(
+            content=f'''
+            <div class="scan-started">
+                <div class="spinner" style="margin-right: 0.5rem;"></div>
+                <p class="status-message">Scan started, redirecting to Disc Review...</p>
+            </div>
+            <script>setTimeout(() => window.location.href = "/disc?task_id={task_id}", 1000);</script>
+            ''',
+            status_code=200,
+        )
 
     return ScanTaskResponse(task_id=task_id, status="scanning")
 

@@ -13,16 +13,9 @@ Items deferred to focus on getting to a fully functional system first.
       * FIXED: httpx automatically handles URL encoding for apostrophes, so this now works correctly
       * IMPLEMENTED: Added `get_external_ids()` function and `/api/disc/tmdb-external-ids/{tmdb_id}` endpoint to fetch IMDB IDs
       * When a user selects a TMDB result, the frontend now displays TMDB and IMDB links for verification
-- [ ] It would be nice to have a file browser to pick the output directory. Perhaps treat it as if I were choosing a file for upload while letting me choose a folder (if possible) or taking the `dirname` of the file I choose (if I can't pick folders)
 - [ ] "Process Selected Tracks" button CSS doesn't look disabled when disabled (verify and fix)
 - [x] Remove media type suffixes from filenames (e.g., `-featurette`, `-deleted`) since extras are organized into subdirectories
       * FIXED: Removed PLEX_SUFFIXES from naming.py and disc.html JavaScript - extras now just use track name
-- [ ] It would be nice to have a file browser to pick the output directory. 
-      * Perhaps treat it as if I were choosing a file for upload to launch the file browser
-      * If you can, allow me to select a folder
-      * If I can't pick folders, use the `dirname` of the file I choose
-
-We should include the size of the input source file in rip task responses to give us some data about how long is reasonable to have expected a rip to run.
 
 ## Drive operations
 - [ ] Disable "Scan Disc" button (and other drive action buttons) if the drive is currently busy
@@ -32,7 +25,7 @@ We should include the size of the input source file in rip task responses to giv
 ## Logging
 
 - [x] Webapp WebSocket logging showing daemon_id on connect/disconnect (completed in refactor)
-- [ ] Log logging level on webapp and daemon startup
+- [ ] Make logging level a dynamically reconfigurable item; change it in webapp and the change applies directly
 - [ ] Log logging level changes when config is updated
 
 ## Daemon

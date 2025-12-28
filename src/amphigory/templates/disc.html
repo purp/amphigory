@@ -312,6 +312,45 @@ function updateTrackOrder() {
 // Check disc status and show scan button
 async function checkDiscStatus() {
     try {
+        // First, check if we arrived with a task_id parameter (from dashboard scan)
+        const urlParams = new URLSearchParams(window.location.search);
+        const taskId = urlParams.get('task_id');
+
+        if (taskId) {
+            // We have a task_id - show scanning status and poll for results
+            document.getElementById('disc-status-text').textContent = 'Scanning disc...';
+            document.getElementById('scan-section').innerHTML = `
+                <div class="scanning">
+                    <div class="spinner"></div>
+                    <p>Scanning disc...</p>
+                </div>
+            `;
+            // Clear the task_id from URL to prevent re-polling on refresh
+            window.history.replaceState({}, document.title, '/disc');
+            pollForScanResult(taskId);
+            return;
+        }
+
+        // Check if there's an in-progress scan task
+        try {
+            const scanStatusResponse = await fetch('/api/disc/scan-status');
+            if (scanStatusResponse.ok) {
+                const scanStatus = await scanStatusResponse.json();
+                // There's an active scan - show scanning UI and poll for it
+                document.getElementById('disc-status-text').textContent = 'Scanning disc...';
+                document.getElementById('scan-section').innerHTML = `
+                    <div class="scanning">
+                        <div class="spinner"></div>
+                        <p>Scanning disc...</p>
+                    </div>
+                `;
+                pollForScanResult(scanStatus.task_id);
+                return;
+            }
+        } catch (err) {
+            // No active scan - continue to normal status check
+        }
+
         const response = await fetch('/api/disc/status');
         const data = await response.json();
 

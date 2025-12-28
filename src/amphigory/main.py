@@ -1,9 +1,11 @@
 """FastAPI application entry point."""
 
 import asyncio
+import json
 import logging
 from pathlib import Path
 from contextlib import asynccontextmanager
+from typing import Set
 
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 
@@ -24,6 +26,104 @@ class QuietAccessFilter(logging.Filter):
             if path in message:
                 return False  # Don't log these at all
         return True
+
+
+class ScanResultProcessor:
+    """Background processor that saves completed scan results to database.
+
+    This ensures scan results are persisted even if the user navigates away
+    before the scan completes.
+    """
+
+    def __init__(self, tasks_dir: Path, poll_interval: float = 5.0):
+        self.tasks_dir = tasks_dir
+        self.poll_interval = poll_interval
+        self._processed: Set[str] = set()
+        self._task: asyncio.Task | None = None
+        self._running = False
+        self._logger = logging.getLogger("uvicorn")
+
+    async def start(self):
+        """Start the background processing loop."""
+        self._running = True
+        self._task = asyncio.create_task(self._process_loop())
+
+    async def stop(self):
+        """Stop the background processing loop."""
+        self._running = False
+        if self._task:
+            self._task.cancel()
+            try:
+                await self._task
+            except asyncio.CancelledError:
+                pass
+
+    async def _process_loop(self):
+        """Main processing loop."""
+        while self._running:
+            try:
+                await self._process_completed_scans()
+            except Exception as e:
+                self._logger.error(f"Error processing scan results: {e}")
+            await asyncio.sleep(self.poll_interval)
+
+    async def _process_completed_scans(self):
+        """Check for and process completed scan tasks."""
+        complete_dir = self.tasks_dir / "complete"
+        if not complete_dir.exists():
+            return
+
+        # Import here to avoid circular imports
+        from amphigory.api.disc import _get_current_fingerprint, set_current_scan
+        from amphigory.api import disc_repository
+
+        for task_file in complete_dir.glob("*-scan.json"):
+            task_id = task_file.stem
+            if task_id in self._processed:
+                continue
+
+            try:
+                with open(task_file) as f:
+                    data = json.load(f)
+
+                result = data.get("result")
+                if not result or "disc_name" not in result:
+                    # Not a valid scan result
+                    self._processed.add(task_id)
+                    continue
+
+                # Get current fingerprint from daemon
+                fingerprint = await _get_current_fingerprint()
+                if not fingerprint:
+                    # No disc inserted or can't get fingerprint - skip for now
+                    continue
+
+                # Check if already in database
+                existing = await disc_repository.get_disc_by_fingerprint(fingerprint)
+                if existing and existing.get("scan_data"):
+                    # Already have scan data for this disc
+                    self._processed.add(task_id)
+                    continue
+
+                # Save to database
+                scan_data = {
+                    "disc_name": result["disc_name"],
+                    "disc_type": result["disc_type"],
+                    "tracks": result.get("tracks", []),
+                }
+                await disc_repository.save_disc_scan(fingerprint, scan_data)
+
+                # Also update in-memory cache
+                set_current_scan(scan_data)
+
+                self._logger.info(f"Auto-processed scan result {task_id[:20]}... for fingerprint {fingerprint[:12]}...")
+                self._processed.add(task_id)
+
+            except Exception as e:
+                self._logger.error(f"Error processing scan task {task_id}: {e}")
+                self._processed.add(task_id)  # Don't retry failed tasks
+
+
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi.responses import HTMLResponse
@@ -84,9 +184,20 @@ async def lifespan(app: FastAPI):
     )
     await app.state.task_processor.start()
 
+    # Start scan result processor (auto-saves scan results to database)
+    app.state.scan_processor = ScanResultProcessor(
+        tasks_dir=data_dir / "tasks",
+        poll_interval=5.0,
+    )
+    await app.state.scan_processor.start()
+
     yield
 
     # Cleanup
+    try:
+        await app.state.scan_processor.stop()
+    except Exception:
+        pass  # Ignore scan processor stop errors
     try:
         await app.state.task_processor.stop()
     finally:
