@@ -5,6 +5,7 @@ import json
 import logging
 import re
 import shutil
+import time
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -14,6 +15,30 @@ from amphigory.services.transcoder import TranscoderService, TranscodeProgress
 from amphigory.preset_selector import parse_resolution, recommend_preset
 
 logger = logging.getLogger(__name__)
+
+
+def format_size(size_bytes: int) -> str:
+    """Format bytes as human-readable size."""
+    if size_bytes >= 1024 ** 3:
+        return f"{size_bytes / (1024 ** 3):.2f} GB"
+    elif size_bytes >= 1024 ** 2:
+        return f"{size_bytes / (1024 ** 2):.1f} MB"
+    else:
+        return f"{size_bytes / 1024:.0f} KB"
+
+
+def format_duration(seconds: int) -> str:
+    """Format duration in human-readable form."""
+    if seconds >= 3600:
+        hours = seconds // 3600
+        minutes = (seconds % 3600) // 60
+        return f"{hours}h{minutes}m"
+    elif seconds >= 60:
+        minutes = seconds // 60
+        secs = seconds % 60
+        return f"{minutes}m{secs}s"
+    else:
+        return f"{seconds}s"
 
 WEBAPP_TASK_TYPES = {"transcode", "insert"}
 
@@ -178,6 +203,7 @@ class TaskProcessor:
         task_id = task_data["id"]
         input_path = Path(task_data["input"])
         output_path = Path(task_data["output"])
+        start_time = time.time()
 
         # Ensure output directory exists
         output_path.parent.mkdir(parents=True, exist_ok=True)
@@ -216,6 +242,16 @@ class TaskProcessor:
 
         if not success:
             raise Exception("Transcode failed")
+
+        # Log summary stats
+        duration = int(time.time() - start_time)
+        output_size = output_path.stat().st_size if output_path.exists() else 0
+        input_size = input_path.stat().st_size if input_path.exists() else 0
+        ratio = (output_size / input_size * 100) if input_size > 0 else 0
+        logger.info(
+            f"Transcode: {output_path.name}, {format_size(input_size)} → {format_size(output_size)} "
+            f"({ratio:.0f}%), {format_duration(duration)}"
+        )
 
         await self._complete_task(task_id, {
             "task_id": task_id,

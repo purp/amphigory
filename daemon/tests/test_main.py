@@ -98,6 +98,102 @@ class TestDaemonIdGeneration:
         assert "@" in result
 
 
+class TestFormatTaskSummary:
+    """Tests for task summary formatting."""
+
+    def test_format_size_gb(self):
+        """format_size formats GB correctly."""
+        from amphigory_daemon.main import format_size
+
+        # 25 GB
+        assert format_size(25 * 1024 ** 3) == "25.00 GB"
+        # 1.5 GB
+        assert format_size(int(1.5 * 1024 ** 3)) == "1.50 GB"
+
+    def test_format_size_mb(self):
+        """format_size formats MB correctly."""
+        from amphigory_daemon.main import format_size
+
+        # 500 MB
+        assert format_size(500 * 1024 ** 2) == "500.0 MB"
+
+    def test_format_scan_task_summary(self):
+        """format_task_summary formats scan results."""
+        from datetime import datetime
+        from amphigory_daemon.main import format_task_summary
+        from amphigory_daemon.models import TaskResponse, TaskStatus, ScanResult, ScannedTrack
+
+        tracks = [
+            ScannedTrack(number=0, duration="2:00:00", size_bytes=25_000_000_000,
+                         chapters=20, resolution="1920x1080", audio_streams=[], subtitle_streams=[]),
+            ScannedTrack(number=1, duration="0:05:00", size_bytes=500_000_000,
+                         chapters=1, resolution="1920x1080", audio_streams=[], subtitle_streams=[]),
+        ]
+        response = TaskResponse(
+            task_id="test-scan",
+            status=TaskStatus.SUCCESS,
+            started_at=datetime.now(),
+            completed_at=datetime.now(),
+            duration_seconds=45,
+            result=ScanResult(disc_name="TEST_MOVIE", disc_type="bluray", tracks=tracks),
+        )
+
+        summary = format_task_summary(response)
+
+        assert "TEST_MOVIE" in summary
+        assert "bluray" in summary
+        assert "2 tracks" in summary
+        assert "45s" in summary
+
+    def test_format_rip_task_summary(self):
+        """format_task_summary formats rip results with speed."""
+        from datetime import datetime
+        from amphigory_daemon.main import format_task_summary
+        from amphigory_daemon.models import TaskResponse, TaskStatus, RipResult, FileDestination
+
+        response = TaskResponse(
+            task_id="test-rip",
+            status=TaskStatus.SUCCESS,
+            started_at=datetime.now(),
+            completed_at=datetime.now(),
+            duration_seconds=600,  # 10 minutes
+            result=RipResult(
+                destination=FileDestination(
+                    directory="/data/ripped",
+                    filename="Movie (2024).mkv",
+                    size_bytes=25 * 1024 ** 3,  # 25 GB
+                )
+            ),
+        )
+
+        summary = format_task_summary(response)
+
+        assert "Movie (2024).mkv" in summary
+        assert "25.00 GB" in summary
+        assert "600s" in summary
+        assert "MB/s" in summary
+
+    def test_format_failed_task_summary(self):
+        """format_task_summary formats failed tasks."""
+        from datetime import datetime
+        from amphigory_daemon.main import format_task_summary
+        from amphigory_daemon.models import TaskResponse, TaskStatus, TaskError, ErrorCode
+
+        response = TaskResponse(
+            task_id="test-fail",
+            status=TaskStatus.FAILED,
+            started_at=datetime.now(),
+            completed_at=datetime.now(),
+            duration_seconds=5,
+            error=TaskError(code=ErrorCode.MAKEMKV_FAILED, message="Disc unreadable"),
+        )
+
+        summary = format_task_summary(response)
+
+        assert "Failed" in summary
+        assert "Disc unreadable" in summary
+
+
 class TestColdStartMode:
     """Tests for cold-start mode and auto-configuration."""
 

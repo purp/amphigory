@@ -95,6 +95,46 @@ DEFAULT_WEBAPP_BASEDIR = "/opt/amphigory"
 WIKI_DOC_ROOT_URL = "https://gollum/amphigory"
 
 
+def format_size(size_bytes: int) -> str:
+    """Format bytes as human-readable size."""
+    if size_bytes >= 1024 ** 3:
+        return f"{size_bytes / (1024 ** 3):.2f} GB"
+    elif size_bytes >= 1024 ** 2:
+        return f"{size_bytes / (1024 ** 2):.1f} MB"
+    else:
+        return f"{size_bytes / 1024:.0f} KB"
+
+
+def format_task_summary(response: TaskResponse) -> str:
+    """Format summary stats for a completed task."""
+    duration = response.duration_seconds
+
+    if isinstance(response.result, ScanResult):
+        # Scan task: disc info, track count, duration
+        result = response.result
+        track_count = len(result.tracks) if result.tracks else 0
+        return f"Scan: {result.disc_name} ({result.disc_type}), {track_count} tracks, {duration}s"
+
+    elif isinstance(response.result, RipResult):
+        # Rip task: filename, size, duration, speed
+        result = response.result
+        size = result.destination.size_bytes
+        filename = result.destination.filename
+        size_str = format_size(size)
+
+        if duration > 0:
+            speed_mbps = (size / (1024 ** 2)) / duration
+            return f"Rip: {filename}, {size_str}, {duration}s ({speed_mbps:.1f} MB/s)"
+        else:
+            return f"Rip: {filename}, {size_str}, {duration}s"
+
+    elif response.error:
+        # Failed task
+        return f"Failed: {response.error.message}"
+
+    return "Unknown task type"
+
+
 def generate_daemon_id() -> str:
     """
     Generate a unique daemon ID based on username and hostname.
@@ -736,6 +776,7 @@ class AmphigoryDaemon(rumps.App):
                     response = await self._handle_rip_task(task)
 
                 # Complete task
+                logger.info(format_task_summary(response))
                 logger.info(f"Completed task: {task.id} (status: {response.status.value})")
                 self.task_queue.complete_task(response)
 
