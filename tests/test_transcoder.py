@@ -38,3 +38,66 @@ def test_parse_transcode_progress():
     line2 = "Encoding: task 1 of 1, 100.00 %"
     progress2 = transcoder.parse_progress(line2)
     assert progress2 == 100
+
+
+def test_transcode_result_dataclass_exists():
+    """TranscodeResult dataclass should capture success, return_code, and error_output."""
+    from amphigory.services.transcoder import TranscodeResult
+
+    # Success case
+    success_result = TranscodeResult(success=True, return_code=0, error_output="")
+    assert success_result.success is True
+    assert success_result.return_code == 0
+    assert success_result.error_output == ""
+
+    # Failure case
+    error_lines = "ERROR: Opening input file failed\nNo valid source found."
+    failure_result = TranscodeResult(
+        success=False,
+        return_code=1,
+        error_output=error_lines,
+    )
+    assert failure_result.success is False
+    assert failure_result.return_code == 1
+    assert "Opening input file failed" in failure_result.error_output
+
+
+@pytest.mark.asyncio
+async def test_transcode_returns_result_object(tmp_path):
+    """transcode() should return TranscodeResult instead of bool."""
+    from amphigory.services.transcoder import TranscoderService, TranscodeResult
+    from unittest.mock import patch, AsyncMock, MagicMock
+
+    transcoder = TranscoderService()
+
+    input_file = tmp_path / "input.mkv"
+    input_file.write_text("fake video")
+    output_file = tmp_path / "output.mp4"
+    preset_path = tmp_path / "preset.json"
+    preset_path.write_text("{}")
+
+    # Mock subprocess that fails
+    mock_process = MagicMock()
+    mock_process.returncode = 1
+    mock_process.wait = AsyncMock()
+
+    # Simulate HandBrake error output
+    error_output = b"ERROR: Opening input file failed\n"
+
+    async def fake_stdout_iter():
+        yield error_output
+    mock_process.stdout.__aiter__ = lambda self: fake_stdout_iter()
+
+    with patch("asyncio.create_subprocess_exec", return_value=mock_process):
+        result = await transcoder.transcode(
+            input_path=input_file,
+            output_path=output_file,
+            preset_path=preset_path,
+            preset_name="Test Preset",
+        )
+
+    # Should return TranscodeResult, not bool
+    assert isinstance(result, TranscodeResult)
+    assert result.success is False
+    assert result.return_code == 1
+    assert "Opening input file failed" in result.error_output

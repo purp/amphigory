@@ -17,6 +17,14 @@ class TranscodeProgress:
     message: str = ""
 
 
+@dataclass
+class TranscodeResult:
+    """Result of a transcode operation."""
+    success: bool
+    return_code: int
+    error_output: str = ""
+
+
 class TranscoderService:
     """Manages video transcoding with HandBrake."""
 
@@ -92,10 +100,10 @@ class TranscoderService:
         preset_path: Path,
         preset_name: str,
         progress_callback: Callable[[TranscodeProgress], None] | None = None,
-    ) -> bool:
+    ) -> TranscodeResult:
         """Transcode a video file.
 
-        Returns True on success, False on failure.
+        Returns TranscodeResult with success, return_code, and error_output.
         """
         output_path.parent.mkdir(parents=True, exist_ok=True)
 
@@ -110,9 +118,14 @@ class TranscoderService:
         )
 
         last_progress = 0
+        error_lines: list[str] = []
 
         async for line in process.stdout:
             line_str = line.decode("utf-8", errors="replace").strip()
+
+            # Capture error lines (lines with ERROR, error, or fail keywords)
+            if any(kw in line_str.lower() for kw in ["error", "fail", "cannot", "invalid"]):
+                error_lines.append(line_str)
 
             if progress_callback:
                 progress = self.parse_full_progress(line_str)
@@ -122,7 +135,12 @@ class TranscoderService:
 
         await process.wait()
 
-        return process.returncode == 0 and output_path.exists()
+        success = process.returncode == 0 and output_path.exists()
+        return TranscodeResult(
+            success=success,
+            return_code=process.returncode,
+            error_output="\n".join(error_lines),
+        )
 
     async def get_video_info(self, input_path: Path) -> dict | None:
         """Get video information using HandBrake scan."""

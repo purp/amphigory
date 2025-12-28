@@ -385,7 +385,7 @@ async def get_disc_status_html(request: Request):
 
                 # Check if disc has a fingerprint and if it's known in the database
                 fingerprint = drive_data.get("fingerprint")
-                fp_short = fingerprint[:7] if fingerprint else ""
+                fp_short = fingerprint[:11] if fingerprint else ""
                 known_disc_info = None
                 track_count = 0
 

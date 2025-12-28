@@ -285,6 +285,78 @@ def test_task_processor_failed_task(mock_db, temp_tasks_dir, tmp_path):
     assert failure["error"]["message"] == "Test error"
 
 
+def test_task_processor_failed_task_preserves_original_task_data(mock_db, temp_tasks_dir, tmp_path):
+    """Test TaskProcessor failed file preserves original task data with error info."""
+    import json
+
+    processor = TaskProcessor(
+        db=mock_db,
+        tasks_dir=temp_tasks_dir,
+        transcoded_dir=tmp_path / "transcoded",
+        preset_dir=tmp_path / "presets",
+    )
+
+    task_id = "20251227T140000.000000-transcode"
+    original_task_data = {
+        "id": task_id,
+        "type": "transcode",
+        "input": "/media/ripped/Movie/Movie.mkv",
+        "output": "/media/transcoded/Movie/Movie.mp4",
+        "preset": "Fast 1080p30",
+    }
+
+    # Create in_progress file with full task data
+    (temp_tasks_dir / "in_progress" / f"{task_id}.json").write_text(
+        json.dumps(original_task_data)
+    )
+
+    import asyncio
+    asyncio.run(processor._complete_task(task_id, {
+        "task_id": task_id,
+        "status": "failed",
+        "error": {"message": "HandBrake exited with code 1"},
+    }))
+
+    # Verify failed file contains BOTH original task data AND error info
+    failed_file = temp_tasks_dir / "failed" / f"{task_id}.json"
+    assert failed_file.exists()
+
+    failure = json.loads(failed_file.read_text())
+    # Should have error info
+    assert failure["status"] == "failed"
+    assert failure["error"]["message"] == "HandBrake exited with code 1"
+    # Should ALSO preserve original task data
+    assert failure["input"] == "/media/ripped/Movie/Movie.mkv"
+    assert failure["output"] == "/media/transcoded/Movie/Movie.mp4"
+    assert failure["preset"] == "Fast 1080p30"
+    assert failure["type"] == "transcode"
+
+
+def test_task_processor_accepts_max_concurrent_transcodes(mock_db, temp_tasks_dir, tmp_path):
+    """Test TaskProcessor accepts max_concurrent_transcodes parameter."""
+    processor = TaskProcessor(
+        db=mock_db,
+        tasks_dir=temp_tasks_dir,
+        transcoded_dir=tmp_path / "transcoded",
+        preset_dir=tmp_path / "presets",
+        max_concurrent_transcodes=2,
+    )
+
+    assert processor.max_concurrent_transcodes == 2
+
+
+def test_task_processor_max_concurrent_defaults_to_2(mock_db, temp_tasks_dir, tmp_path):
+    """Test TaskProcessor defaults max_concurrent_transcodes to 2."""
+    processor = TaskProcessor(
+        db=mock_db,
+        tasks_dir=temp_tasks_dir,
+        transcoded_dir=tmp_path / "transcoded",
+        preset_dir=tmp_path / "presets",
+    )
+
+    assert processor.max_concurrent_transcodes == 2
+
+
 class TestParseEtaToSeconds:
     """Tests for parse_eta_to_seconds helper function."""
 

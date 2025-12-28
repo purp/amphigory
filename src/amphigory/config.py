@@ -14,6 +14,7 @@ class Config:
     transcoded_dir: Path
     plex_dir: Path
     wiki_dir: Path
+    max_concurrent_transcodes: int = 2
 
 
 def get_config() -> Config:
@@ -28,4 +29,5 @@ def get_config() -> Config:
         transcoded_dir=Path(os.environ.get("AMPHIGORY_TRANSCODED_DIR", "/media/transcoded")),
         plex_dir=Path(os.environ.get("AMPHIGORY_PLEX_DIR", "/media/plex/data")),
         wiki_dir=Path(os.environ.get("AMPHIGORY_WIKI_DIR", "/wiki")),
+        max_concurrent_transcodes=int(os.environ.get("AMPHIGORY_MAX_CONCURRENT_TRANSCODES", "2")),
     )

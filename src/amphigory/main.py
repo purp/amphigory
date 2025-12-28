@@ -181,6 +181,7 @@ async def lifespan(app: FastAPI):
         transcoded_dir=config.transcoded_dir,
         preset_dir=config.preset_dir,
         progress_callback=progress_callback,
+        max_concurrent_transcodes=config.max_concurrent_transcodes,
     )
     await app.state.task_processor.start()
 
@@ -402,7 +403,7 @@ async def websocket_endpoint(websocket: WebSocket):
                             from amphigory.api.disc_repository import get_disc_by_fingerprint
                             disc = await get_disc_by_fingerprint(fingerprint)
                             if disc:
-                                year_str = disc['year'] or fingerprint[:7]
+                                year_str = disc['year'] or fingerprint[:11]
                                 uvi_logger.info(f"Known disc: {disc['title']} ({year_str})")
 
                         # Broadcast to browser clients

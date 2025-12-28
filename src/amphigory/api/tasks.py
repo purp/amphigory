@@ -495,6 +495,7 @@ async def process_tracks(request: ProcessTracksRequest) -> ProcessTracksResponse
             "disc_fingerprint": request.disc_fingerprint,
             "track_number": track.track_number,
         }
+        ## TODO: raise an exception if any values in `transcode_task` are empty
 
         transcode_file = tasks_dir / "queued" / f"{transcode_id}.json"
         with open(transcode_file, "w") as f:
