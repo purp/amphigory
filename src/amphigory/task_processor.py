@@ -43,13 +43,13 @@ class TaskProcessor:
         self,
         db: Database,
         tasks_dir: Path | str,
-        inbox_dir: Path | str,
+        transcoded_dir: Path | str,
         preset_dir: Path | str,
         progress_callback: Optional[Callable[[dict], None]] = None,
     ):
         self.db = db
         self.tasks_dir = Path(tasks_dir)
-        self.inbox_dir = Path(inbox_dir)
+        self.transcoded_dir = Path(transcoded_dir)
         self.preset_dir = Path(preset_dir)
         self.progress_callback = progress_callback
         self.transcoder = TranscoderService()
@@ -228,7 +228,7 @@ class TaskProcessor:
     async def _process_insert(self, task_data: dict) -> None:
         """Process an insert task (move to Plex library)."""
         task_id = task_data["id"]
-        # TODO: Implement insert task (move from inbox to Plex)
+        # TODO: Implement insert task (move from transcoded to Plex)
         await self._complete_task(task_id, {
             "task_id": task_id,
             "status": "success",

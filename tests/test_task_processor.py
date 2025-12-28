@@ -28,7 +28,7 @@ def test_task_processor_init(mock_db, temp_tasks_dir, tmp_path):
     processor = TaskProcessor(
         db=mock_db,
         tasks_dir=temp_tasks_dir,
-        inbox_dir=tmp_path / "inbox",
+        transcoded_dir=tmp_path / "transcoded",
         preset_dir=tmp_path / "presets",
     )
     assert processor.db == mock_db
@@ -42,7 +42,7 @@ def test_task_processor_filters_by_type(mock_db, temp_tasks_dir, tmp_path):
     processor = TaskProcessor(
         db=mock_db,
         tasks_dir=temp_tasks_dir,
-        inbox_dir=tmp_path / "inbox",
+        transcoded_dir=tmp_path / "transcoded",
         preset_dir=tmp_path / "presets",
     )
 
@@ -71,7 +71,7 @@ def test_task_processor_checks_input_dependency(mock_db, temp_tasks_dir, tmp_pat
     processor = TaskProcessor(
         db=mock_db,
         tasks_dir=temp_tasks_dir,
-        inbox_dir=tmp_path / "inbox",
+        transcoded_dir=tmp_path / "transcoded",
         preset_dir=tmp_path / "presets",
     )
 
@@ -99,7 +99,7 @@ def test_task_processor_claims_ready_transcode(mock_db, temp_tasks_dir, tmp_path
     processor = TaskProcessor(
         db=mock_db,
         tasks_dir=temp_tasks_dir,
-        inbox_dir=tmp_path / "inbox",
+        transcoded_dir=tmp_path / "transcoded",
         preset_dir=tmp_path / "presets",
     )
 
@@ -138,7 +138,7 @@ def test_task_processor_claims_insert_task(mock_db, temp_tasks_dir, tmp_path):
     processor = TaskProcessor(
         db=mock_db,
         tasks_dir=temp_tasks_dir,
-        inbox_dir=tmp_path / "inbox",
+        transcoded_dir=tmp_path / "transcoded",
         preset_dir=tmp_path / "presets",
     )
 
@@ -172,7 +172,7 @@ def test_task_processor_respects_order(mock_db, temp_tasks_dir, tmp_path):
     processor = TaskProcessor(
         db=mock_db,
         tasks_dir=temp_tasks_dir,
-        inbox_dir=tmp_path / "inbox",
+        transcoded_dir=tmp_path / "transcoded",
         preset_dir=tmp_path / "presets",
     )
 
@@ -216,7 +216,7 @@ def test_task_processor_complete_task(mock_db, temp_tasks_dir, tmp_path):
     processor = TaskProcessor(
         db=mock_db,
         tasks_dir=temp_tasks_dir,
-        inbox_dir=tmp_path / "inbox",
+        transcoded_dir=tmp_path / "transcoded",
         preset_dir=tmp_path / "presets",
     )
 
@@ -253,7 +253,7 @@ def test_task_processor_failed_task(mock_db, temp_tasks_dir, tmp_path):
     processor = TaskProcessor(
         db=mock_db,
         tasks_dir=temp_tasks_dir,
-        inbox_dir=tmp_path / "inbox",
+        transcoded_dir=tmp_path / "transcoded",
         preset_dir=tmp_path / "presets",
     )
 

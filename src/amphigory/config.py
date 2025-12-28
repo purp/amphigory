@@ -11,7 +11,7 @@ class Config:
     database_path: Path
     preset_dir: Path
     ripped_dir: Path
-    inbox_dir: Path
+    transcoded_dir: Path
     plex_dir: Path
     wiki_dir: Path
 
@@ -25,7 +25,7 @@ def get_config() -> Config:
         database_path=data_dir / "amphigory.db",
         preset_dir=config_dir / "presets",
         ripped_dir=Path(os.environ.get("AMPHIGORY_RIPPED_DIR", "/media/ripped")),
-        inbox_dir=Path(os.environ.get("AMPHIGORY_INBOX_DIR", "/media/plex/inbox")),
+        transcoded_dir=Path(os.environ.get("AMPHIGORY_TRANSCODED_DIR", "/media/transcoded")),
         plex_dir=Path(os.environ.get("AMPHIGORY_PLEX_DIR", "/media/plex/data")),
         wiki_dir=Path(os.environ.get("AMPHIGORY_WIKI_DIR", "/wiki")),
     )

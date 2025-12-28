@@ -29,7 +29,7 @@ COPY src/ ./src/
 COPY config/ /config/
 
 # Create directories for data
-RUN mkdir -p /data /media/ripped /media/plex/inbox /media/plex/data /wiki
+RUN mkdir -p /data /media/ripped /media/transcoded /media/plex/data /wiki
 
 ENV PYTHONPATH=/app/src
 ENV AMPHIGORY_CONFIG=/config

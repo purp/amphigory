@@ -73,7 +73,7 @@ async def lifespan(app: FastAPI):
     app.state.task_processor = TaskProcessor(
         db=app.state.db,
         tasks_dir=data_dir / "tasks",
-        inbox_dir=config.inbox_dir,
+        transcoded_dir=config.transcoded_dir,
         preset_dir=config.preset_dir,
         progress_callback=progress_callback,
     )
@@ -151,7 +151,7 @@ async def library_page(request: Request):
 
 @app.get("/cleanup", response_class=HTMLResponse)
 async def cleanup_page(request: Request):
-    """Cleanup page for managing ripped and inbox files."""
+    """Cleanup page for managing ripped and transcoded files."""
     return templates.TemplateResponse(request, "cleanup.html", {"active_page": "cleanup"})
 
 
@@ -176,7 +176,7 @@ async def settings_page(request: Request):
             },
             "directories": {
                 "ripped_dir": str(config.ripped_dir),
-                "inbox_dir": str(config.inbox_dir),
+                "transcoded_dir": str(config.transcoded_dir),
                 "plex_dir": str(config.plex_dir),
             },
         },

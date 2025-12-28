@@ -11,11 +11,11 @@ from amphigory.main import app
 async def cleanup_env(tmp_path, monkeypatch):
     """Set up test environment with temp directories."""
     ripped = tmp_path / "ripped"
-    inbox = tmp_path / "inbox"
+    transcoded = tmp_path / "transcoded"
     plex = tmp_path / "plex"
 
     ripped.mkdir()
-    inbox.mkdir()
+    transcoded.mkdir()
     plex.mkdir()
 
     # Create Plex subdirectories
@@ -24,12 +24,12 @@ async def cleanup_env(tmp_path, monkeypatch):
     (plex / "Music").mkdir()
 
     monkeypatch.setenv("AMPHIGORY_RIPPED_DIR", str(ripped))
-    monkeypatch.setenv("AMPHIGORY_INBOX_DIR", str(inbox))
+    monkeypatch.setenv("AMPHIGORY_TRANSCODED_DIR", str(transcoded))
     monkeypatch.setenv("AMPHIGORY_PLEX_DIR", str(plex))
 
     return {
         "ripped": ripped,
-        "inbox": inbox,
+        "transcoded": transcoded,
         "plex": plex,
     }
 
@@ -144,22 +144,22 @@ async def test_delete_prevents_path_traversal(cleanup_env):
 
 
 @pytest.mark.asyncio
-async def test_list_inbox_folders(cleanup_env):
-    """GET /api/cleanup/inbox returns inbox folder info."""
-    inbox = cleanup_env["inbox"]
+async def test_list_transcoded_folders(cleanup_env):
+    """GET /api/cleanup/transcoded returns transcoded folder info."""
+    transcoded = cleanup_env["transcoded"]
 
     # Create test folders
-    folder1 = inbox / "InboxMovie1"
+    folder1 = transcoded / "TranscodedMovie1"
     folder1.mkdir()
     (folder1 / "movie.mkv").write_text("x" * 5000)
 
-    folder2 = inbox / "InboxMovie2"
+    folder2 = transcoded / "TranscodedMovie2"
     folder2.mkdir()
     (folder2 / "movie.mkv").write_text("x" * 3000)
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        response = await client.get("/api/cleanup/inbox")
+        response = await client.get("/api/cleanup/transcoded")
 
     assert response.status_code == 200
     data = response.json()
@@ -169,24 +169,24 @@ async def test_list_inbox_folders(cleanup_env):
 
 @pytest.mark.asyncio
 async def test_move_to_plex(cleanup_env):
-    """POST /api/cleanup/inbox/move moves folder to Plex directory."""
-    inbox = cleanup_env["inbox"]
+    """POST /api/cleanup/transcoded/move moves folder to Plex directory."""
+    transcoded = cleanup_env["transcoded"]
     plex = cleanup_env["plex"]
 
-    # Create test folder in inbox
-    folder = inbox / "MovieToMove"
+    # Create test folder in transcoded
+    folder = transcoded / "MovieToMove"
     folder.mkdir()
     test_file = folder / "movie.mkv"
     test_file.write_text("movie content")
 
-    # Verify it's in inbox
+    # Verify it's in transcoded
     assert folder.exists()
     assert test_file.exists()
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         response = await client.post(
-            "/api/cleanup/inbox/move",
+            "/api/cleanup/transcoded/move",
             json={
                 "folders": ["MovieToMove"],
                 "destination": "Movies",
@@ -199,7 +199,7 @@ async def test_move_to_plex(cleanup_env):
     assert len(data["errors"]) == 0
 
     # Verify it moved to Plex
-    assert not folder.exists()  # Gone from inbox
+    assert not folder.exists()  # Gone from transcoded
     new_location = plex / "Movies" / "MovieToMove"
     assert new_location.exists()
     assert (new_location / "movie.mkv").exists()
@@ -209,17 +209,17 @@ async def test_move_to_plex(cleanup_env):
 @pytest.mark.asyncio
 async def test_move_to_tv_shows(cleanup_env):
     """Move to TV-Shows destination."""
-    inbox = cleanup_env["inbox"]
+    transcoded = cleanup_env["transcoded"]
     plex = cleanup_env["plex"]
 
-    folder = inbox / "TVShow"
+    folder = transcoded / "TVShow"
     folder.mkdir()
     (folder / "episode.mkv").write_text("episode")
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         response = await client.post(
-            "/api/cleanup/inbox/move",
+            "/api/cleanup/transcoded/move",
             json={
                 "folders": ["TVShow"],
                 "destination": "TV-Shows",
@@ -237,12 +237,12 @@ async def test_move_to_tv_shows(cleanup_env):
 
 @pytest.mark.asyncio
 async def test_move_prevents_path_traversal(cleanup_env):
-    """POST /api/cleanup/inbox/move rejects path traversal."""
+    """POST /api/cleanup/transcoded/move rejects path traversal."""
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         # Test path traversal in folder names
         response = await client.post(
-            "/api/cleanup/inbox/move",
+            "/api/cleanup/transcoded/move",
             json={
                 "folders": ["../../etc/passwd"],
                 "destination": "Movies",
@@ -258,16 +258,16 @@ async def test_move_prevents_path_traversal(cleanup_env):
 
 @pytest.mark.asyncio
 async def test_move_invalid_destination(cleanup_env):
-    """POST /api/cleanup/inbox/move rejects invalid destination."""
-    inbox = cleanup_env["inbox"]
+    """POST /api/cleanup/transcoded/move rejects invalid destination."""
+    transcoded = cleanup_env["transcoded"]
 
-    folder = inbox / "Test"
+    folder = transcoded / "Test"
     folder.mkdir()
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         response = await client.post(
-            "/api/cleanup/inbox/move",
+            "/api/cleanup/transcoded/move",
             json={
                 "folders": ["Test"],
                 "destination": "InvalidDestination",
@@ -328,19 +328,19 @@ async def test_delete_nonexistent_folder(cleanup_env):
 @pytest.mark.asyncio
 async def test_move_multiple_folders(cleanup_env):
     """Move multiple folders at once."""
-    inbox = cleanup_env["inbox"]
+    transcoded = cleanup_env["transcoded"]
     plex = cleanup_env["plex"]
 
     # Create multiple folders
     for i in range(3):
-        folder = inbox / f"Movie{i}"
+        folder = transcoded / f"Movie{i}"
         folder.mkdir()
         (folder / "file.mkv").write_text(f"content{i}")
 
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         response = await client.post(
-            "/api/cleanup/inbox/move",
+            "/api/cleanup/transcoded/move",
             json={
                 "folders": ["Movie0", "Movie1", "Movie2"],
                 "destination": "Movies",
@@ -354,7 +354,7 @@ async def test_move_multiple_folders(cleanup_env):
 
     # Verify all moved
     for i in range(3):
-        assert not (inbox / f"Movie{i}").exists()
+        assert not (transcoded / f"Movie{i}").exists()
         assert (plex / "Movies" / f"Movie{i}").exists()
 
 
@@ -372,11 +372,11 @@ async def test_list_empty_ripped_directory(cleanup_env):
 
 
 @pytest.mark.asyncio
-async def test_list_empty_inbox_directory(cleanup_env):
-    """List inbox directory when empty."""
+async def test_list_empty_transcoded_directory(cleanup_env):
+    """List transcoded directory when empty."""
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
-        response = await client.get("/api/cleanup/inbox")
+        response = await client.get("/api/cleanup/transcoded")
 
     assert response.status_code == 200
     data = response.json()

@@ -22,7 +22,7 @@ services:
       - AMPHIGORY_DATA=/data
       - AMPHIGORY_CONFIG=/config
       - AMPHIGORY_RIPPED_DIR=/media/ripped
-      - AMPHIGORY_INBOX_DIR=/media/plex/inbox
+      - AMPHIGORY_TRANSCODED_DIR=/media/transcoded
       - AMPHIGORY_PLEX_DIR=/media/plex/data
       - AMPHIGORY_WIKI_DIR=/wiki
 
@@ -46,7 +46,7 @@ services:
 
       # Media directories
       - /Volumes/Media Drive 1/Ripped:/media/ripped
-      - /Volumes/Media Drive 1/plex-media-server/inbox:/media/plex/inbox
+      - /Volumes/Media Drive 1/plex-media-server/transcoded:/media/transcoded
       - /Volumes/Media Drive 1/plex-media-server/data:/media/plex/data
 
       # Wiki integration for Gollum

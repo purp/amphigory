@@ -9,7 +9,7 @@
     <!-- Tabs -->
     <div class="tabs">
         <button class="tab-btn active" onclick="showTab('ripped')">Ripped Files</button>
-        <button class="tab-btn" onclick="showTab('inbox')">Inbox</button>
+        <button class="tab-btn" onclick="showTab('transcoded')">Transcoded</button>
     </div>
 
     <!-- Ripped Tab -->
@@ -48,16 +48,16 @@
         </div>
     </div>
 
-    <!-- Inbox Tab -->
-    <div id="inbox-tab" class="tab-content">
+    <!-- Transcoded Tab -->
+    <div id="transcoded-tab" class="tab-content">
         <div class="card">
             <div class="section-header">
-                <h2>Inbox Folders</h2>
+                <h2>Transcoded Folders</h2>
                 <div class="action-buttons">
-                    <button class="btn btn-primary" id="move-inbox-btn" onclick="moveSelected()" disabled>
+                    <button class="btn btn-primary" id="move-transcoded-btn" onclick="moveSelected()" disabled>
                         Move to Plex
                     </button>
-                    <button class="btn btn-danger" id="delete-inbox-btn" onclick="deleteSelected('inbox')" disabled>
+                    <button class="btn btn-danger" id="delete-transcoded-btn" onclick="deleteSelected('transcoded')" disabled>
                         Delete Selected
                     </button>
                 </div>
@@ -67,7 +67,7 @@
                 <thead>
                     <tr>
                         <th class="col-select">
-                            <input type="checkbox" id="select-all-inbox" onchange="toggleSelectAll('inbox', this.checked)">
+                            <input type="checkbox" id="select-all-transcoded" onchange="toggleSelectAll('transcoded', this.checked)">
                         </th>
                         <th>Name</th>
                         <th>Size</th>
@@ -75,16 +75,16 @@
                         <th>Age</th>
                     </tr>
                 </thead>
-                <tbody id="inbox-list"
-                       hx-get="/api/cleanup/inbox/html"
+                <tbody id="transcoded-list"
+                       hx-get="/api/cleanup/transcoded/html"
                        hx-trigger="load, refresh from:body"
-                       hx-target="#inbox-list">
+                       hx-target="#transcoded-list">
                     <tr><td colspan="5" class="loading">Loading...</td></tr>
                 </tbody>
             </table>
 
             <div class="selection-footer">
-                <span id="inbox-info">No folders selected</span>
+                <span id="transcoded-info">No folders selected</span>
             </div>
         </div>
     </div>
@@ -94,7 +94,7 @@
 // Track selected folders for each tab
 const selectedFolders = {
     ripped: new Map(), // folderName -> size
-    inbox: new Map(),
+    transcoded: new Map(),
 };
 
 function showTab(tabName) {
@@ -154,9 +154,9 @@ function updateSelectionInfo(tab) {
     // Update button states
     if (tab === 'ripped') {
         document.getElementById('delete-ripped-btn').disabled = count === 0;
-    } else if (tab === 'inbox') {
-        document.getElementById('move-inbox-btn').disabled = count === 0;
-        document.getElementById('delete-inbox-btn').disabled = count === 0;
+    } else if (tab === 'transcoded') {
+        document.getElementById('move-transcoded-btn').disabled = count === 0;
+        document.getElementById('delete-transcoded-btn').disabled = count === 0;
     }
 
     // Update select-all checkbox
@@ -192,7 +192,7 @@ async function deleteSelected(tab) {
     if (!confirmed) return;
 
     try {
-        const endpoint = tab === 'ripped' ? '/api/cleanup/ripped' : '/api/cleanup/inbox';
+        const endpoint = tab === 'ripped' ? '/api/cleanup/ripped' : '/api/cleanup/transcoded';
         const response = await fetch(endpoint, {
             method: 'DELETE',
             headers: {'Content-Type': 'application/json'},
@@ -222,7 +222,7 @@ async function deleteSelected(tab) {
 }
 
 async function moveSelected() {
-    const selected = selectedFolders.inbox;
+    const selected = selectedFolders.transcoded;
     if (selected.size === 0) return;
 
     const folderNames = Array.from(selected.keys());
@@ -242,7 +242,7 @@ async function moveSelected() {
     }
 
     try {
-        const response = await fetch('/api/cleanup/inbox/move', {
+        const response = await fetch('/api/cleanup/transcoded/move', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({
@@ -264,7 +264,7 @@ async function moveSelected() {
         }
 
         // Clear selection and refresh list
-        selectedFolders.inbox.clear();
+        selectedFolders.transcoded.clear();
         htmx.trigger('body', 'refresh');
 
     } catch (error) {
@@ -278,8 +278,8 @@ document.addEventListener('htmx:afterSettle', function(event) {
     // Update selection info after HTMX loads content
     if (event.detail.target.id === 'ripped-list') {
         updateSelectionInfo('ripped');
-    } else if (event.detail.target.id === 'inbox-list') {
-        updateSelectionInfo('inbox');
+    } else if (event.detail.target.id === 'transcoded-list') {
+        updateSelectionInfo('transcoded');
     }
 });
 </script>

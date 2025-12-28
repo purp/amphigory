@@ -29,7 +29,7 @@ def test_get_next_task_filters_by_owner(temp_queue):
         "type": "transcode",
         "created_at": "2025-12-27T14:00:01",
         "input": "/media/ripped/test.mkv",
-        "output": "/media/inbox/test.mkv",
+        "output": "/media/transcoded/test.mkv",
     }
 
     temp_queue.create_task(rip_task)
@@ -51,7 +51,7 @@ def test_get_next_task_respects_input_dependency(temp_queue):
         "type": "transcode",
         "created_at": "2025-12-27T14:00:01",
         "input": "/nonexistent/file.mkv",
-        "output": "/media/inbox/test.mkv",
+        "output": "/media/transcoded/test.mkv",
     }
     temp_queue.create_task(transcode_task)
 

@@ -56,7 +56,7 @@ class TestResumeFlow:
                     "Main Feature",
                     "complete",
                     "/media/ripped/t1.mkv",
-                    "/media/inbox/t1.mp4",
+                    "/media/transcoded/t1.mp4",
                     "/media/plex/t1.mp4",
                 ),
             )
@@ -73,7 +73,7 @@ class TestResumeFlow:
                     "Making Of",
                     "transcoded",
                     "/media/ripped/t2.mkv",
-                    "/media/inbox/t2.mp4",
+                    "/media/transcoded/t2.mp4",
                 ),
             )
 
@@ -130,13 +130,13 @@ class TestResumeFlow:
         # Track 1: Fully processed
         assert tracks_by_number[1]["status"] == "complete"
         assert tracks_by_number[1]["ripped_path"] == "/media/ripped/t1.mkv"
-        assert tracks_by_number[1]["transcoded_path"] == "/media/inbox/t1.mp4"
+        assert tracks_by_number[1]["transcoded_path"] == "/media/transcoded/t1.mp4"
         assert tracks_by_number[1]["inserted_path"] == "/media/plex/t1.mp4"
 
         # Track 2: Transcoded only
         assert tracks_by_number[2]["status"] == "transcoded"
         assert tracks_by_number[2]["ripped_path"] == "/media/ripped/t2.mkv"
-        assert tracks_by_number[2]["transcoded_path"] == "/media/inbox/t2.mp4"
+        assert tracks_by_number[2]["transcoded_path"] == "/media/transcoded/t2.mp4"
         assert tracks_by_number[2]["inserted_path"] is None
 
         # Track 3: Ripped only
@@ -197,7 +197,7 @@ class TestResumeFlow:
         # Paths are set but files don't exist on disk
         assert data["ripped_path"] == "/media/ripped/t1.mkv"
         assert data["ripped_exists"] is False
-        assert data["transcoded_path"] == "/media/inbox/t1.mp4"
+        assert data["transcoded_path"] == "/media/transcoded/t1.mp4"
         assert data["transcoded_exists"] is False
         assert data["inserted_path"] == "/media/plex/t1.mp4"
         assert data["inserted_exists"] is False
@@ -217,7 +217,7 @@ class TestResumeFlow:
 
         # Verify track has paths before reset
         assert complete_track["ripped_path"] == "/media/ripped/t1.mkv"
-        assert complete_track["transcoded_path"] == "/media/inbox/t1.mp4"
+        assert complete_track["transcoded_path"] == "/media/transcoded/t1.mp4"
         assert complete_track["inserted_path"] == "/media/plex/t1.mp4"
         assert complete_track["status"] == "complete"
 
@@ -348,7 +348,7 @@ class TestResumeFlow:
 
         # Verify paths were NOT overwritten by save
         assert updated_tracks[1]["ripped_path"] == "/media/ripped/t1.mkv"
-        assert updated_tracks[1]["transcoded_path"] == "/media/inbox/t1.mp4"
+        assert updated_tracks[1]["transcoded_path"] == "/media/transcoded/t1.mp4"
         assert updated_tracks[1]["inserted_path"] == "/media/plex/t1.mp4"
 
     @pytest.mark.asyncio

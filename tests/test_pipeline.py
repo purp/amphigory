@@ -13,7 +13,7 @@ async def test_pipeline_creates_folder_structure():
     with patch.object(Path, 'mkdir') as mock_mkdir:
         pipeline = Pipeline(
             ripped_dir=Path("/media/ripped"),
-            inbox_dir=Path("/media/plex/inbox"),
+            transcoded_dir=Path("/media/transcoded"),
             plex_dir=Path("/media/plex/data"),
         )
 
@@ -25,5 +25,5 @@ async def test_pipeline_creates_folder_structure():
         )
 
         assert "ripped" in paths
-        assert "inbox" in paths
+        assert "transcoded" in paths
         assert "The Polar Express (2004) {imdb-tt0338348}" in str(paths["ripped"])

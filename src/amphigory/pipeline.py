@@ -16,7 +16,7 @@ from amphigory.database import Database
 class PipelineConfig:
     """Pipeline configuration."""
     ripped_dir: Path
-    inbox_dir: Path
+    transcoded_dir: Path
     plex_dir: Path
     preset_manager: PresetManager
 
@@ -37,13 +37,13 @@ class Pipeline:
     def __init__(
         self,
         ripped_dir: Path,
-        inbox_dir: Path,
+        transcoded_dir: Path,
         plex_dir: Path,
         preset_manager: PresetManager | None = None,
         db: Database | None = None,
     ):
         self.ripped_dir = ripped_dir
-        self.inbox_dir = inbox_dir
+        self.transcoded_dir = transcoded_dir
         self.plex_dir = plex_dir
         self.preset_manager = preset_manager
         self.db = db
@@ -74,24 +74,24 @@ class Pipeline:
     ) -> dict[str, Path]:
         """Create the folder structure for a movie.
 
-        Returns paths for ripped and inbox directories.
+        Returns paths for ripped and transcoded directories.
         """
         folder_name = self.format_folder_name(title, year, imdb_id, edition)
 
         ripped_path = self.ripped_dir / folder_name
-        inbox_path = self.inbox_dir / folder_name
+        transcoded_path = self.transcoded_dir / folder_name
 
         ripped_path.mkdir(parents=True, exist_ok=True)
-        inbox_path.mkdir(parents=True, exist_ok=True)
+        transcoded_path.mkdir(parents=True, exist_ok=True)
 
         # Create extras subdirectories
         if extras_types:
             for extra_type in extras_types:
-                (inbox_path / extra_type).mkdir(exist_ok=True)
+                (transcoded_path / extra_type).mkdir(exist_ok=True)
 
         return {
             "ripped": ripped_path,
-            "inbox": inbox_path,
+            "transcoded": transcoded_path,
             "folder_name": folder_name,
         }
 
@@ -154,9 +154,9 @@ class Pipeline:
             final_name = track_info["final_name"]
 
             if track_type == "main":
-                output_path = paths["inbox"] / f"{final_name}.mp4"
+                output_path = paths["transcoded"] / f"{final_name}.mp4"
             else:
-                output_path = paths["inbox"] / track_type / f"{final_name}.mp4"
+                output_path = paths["transcoded"] / track_type / f"{final_name}.mp4"
 
             # Transcode
             if progress_callback:
@@ -186,11 +186,11 @@ class Pipeline:
         folder_name: str,
         destination: str = "Movies",
     ) -> Path:
-        """Move processed content from inbox to Plex library.
+        """Move processed content from transcoded to Plex library.
 
         Returns the final path.
         """
-        source = self.inbox_dir / folder_name
+        source = self.transcoded_dir / folder_name
         dest = self.plex_dir / destination / folder_name
 
         # Move the folder

@@ -1,4 +1,4 @@
-"""Cleanup API for managing ripped MKV files and inbox transcoded files."""
+"""Cleanup API for managing ripped MKV files and transcoded files."""
 
 import os
 import shutil
@@ -83,9 +83,9 @@ def get_ripped_dir() -> Path:
     return Path(os.environ.get("AMPHIGORY_RIPPED_DIR", "/media/ripped"))
 
 
-def get_inbox_dir() -> Path:
-    """Get inbox directory from environment."""
-    return Path(os.environ.get("AMPHIGORY_INBOX_DIR", "/media/plex/inbox"))
+def get_transcoded_dir() -> Path:
+    """Get transcoded directory from environment."""
+    return Path(os.environ.get("AMPHIGORY_TRANSCODED_DIR", "/media/transcoded"))
 
 
 def get_plex_dir() -> Path:
@@ -251,19 +251,19 @@ async def delete_ripped_folders(request: DeleteRequest) -> DeleteResponse:
     return DeleteResponse(deleted=deleted, errors=errors)
 
 
-@router.get("/inbox", response_model=RippedListResponse)
-async def list_inbox_folders() -> RippedListResponse:
-    """List all folders in inbox directory with metadata."""
-    inbox_dir = get_inbox_dir()
+@router.get("/transcoded", response_model=RippedListResponse)
+async def list_transcoded_folders() -> RippedListResponse:
+    """List all folders in transcoded directory with metadata."""
+    transcoded_dir = get_transcoded_dir()
 
-    if not inbox_dir.exists():
+    if not transcoded_dir.exists():
         return RippedListResponse(folders=[], total_size=0)
 
     folders = []
     total_size = 0
 
     try:
-        for item in inbox_dir.iterdir():
+        for item in transcoded_dir.iterdir():
             if item.is_dir():
                 size = get_folder_size(item)
                 folders.append(FolderInfo(
@@ -274,7 +274,7 @@ async def list_inbox_folders() -> RippedListResponse:
                 ))
                 total_size += size
     except (OSError, PermissionError) as e:
-        raise HTTPException(status_code=500, detail=f"Failed to list inbox directory: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to list transcoded directory: {e}")
 
     # Sort by name
     folders.sort(key=lambda f: f.name)
@@ -282,13 +282,13 @@ async def list_inbox_folders() -> RippedListResponse:
     return RippedListResponse(folders=folders, total_size=total_size)
 
 
-@router.post("/inbox/move", response_model=MoveResponse)
-async def move_inbox_to_plex(request: MoveRequest) -> MoveResponse:
-    """Move folders from inbox to Plex library.
+@router.post("/transcoded/move", response_model=MoveResponse)
+async def move_transcoded_to_plex(request: MoveRequest) -> MoveResponse:
+    """Move folders from transcoded to Plex library.
 
     SECURITY: All folder names and destination are validated to prevent path traversal.
     """
-    inbox_dir = get_inbox_dir()
+    transcoded_dir = get_transcoded_dir()
     plex_dir = get_plex_dir()
     dest_dir = plex_dir / request.destination
 
@@ -303,7 +303,7 @@ async def move_inbox_to_plex(request: MoveRequest) -> MoveResponse:
 
     for folder_name in request.folders:
         # Path traversal validation already done in Pydantic model
-        src_path = inbox_dir / folder_name
+        src_path = transcoded_dir / folder_name
         dest_path = dest_dir / folder_name
 
         # Additional safety checks: ensure resolved paths are within expected directories
@@ -311,7 +311,7 @@ async def move_inbox_to_plex(request: MoveRequest) -> MoveResponse:
             resolved_src = src_path.resolve()
             resolved_dest = dest_path.resolve()
 
-            if not resolved_src.is_relative_to(inbox_dir.resolve()):
+            if not resolved_src.is_relative_to(transcoded_dir.resolve()):
                 errors.append(f"{folder_name}: source path traversal attempt blocked")
                 continue
 
@@ -323,7 +323,7 @@ async def move_inbox_to_plex(request: MoveRequest) -> MoveResponse:
             continue
 
         if not src_path.exists():
-            errors.append(f"{folder_name}: does not exist in inbox")
+            errors.append(f"{folder_name}: does not exist in transcoded")
             continue
 
         if not src_path.is_dir():
@@ -441,18 +441,18 @@ async def list_ripped_folders_html() -> str:
     return '\n'.join(rows)
 
 
-@router.get("/inbox/html", response_class=HTMLResponse)
-async def list_inbox_folders_html() -> str:
-    """List all folders in inbox directory as HTML rows for HTMX."""
-    inbox_dir = get_inbox_dir()
+@router.get("/transcoded/html", response_class=HTMLResponse)
+async def list_transcoded_folders_html() -> str:
+    """List all folders in transcoded directory as HTML rows for HTMX."""
+    transcoded_dir = get_transcoded_dir()
 
-    if not inbox_dir.exists():
+    if not transcoded_dir.exists():
         return '<tr><td colspan="5" class="loading">No folders found</td></tr>'
 
     folders = []
 
     try:
-        for item in inbox_dir.iterdir():
+        for item in transcoded_dir.iterdir():
             if item.is_dir():
                 size = get_folder_size(item)
                 folders.append(FolderInfo(
@@ -476,7 +476,7 @@ async def list_inbox_folders_html() -> str:
         rows.append(f'''<tr>
     <td class="col-select">
         <input type="checkbox" data-folder="{folder.name}" data-size="{folder.size}"
-               onchange="toggleFolder(this, 'inbox', '{folder.name}', {folder.size})">
+               onchange="toggleFolder(this, 'transcoded', '{folder.name}', {folder.size})">
     </td>
     <td>{folder.name}</td>
     <td>{format_size(folder.size)}</td>

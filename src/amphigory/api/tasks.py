@@ -340,7 +340,7 @@ async def process_tracks(request: ProcessTracksRequest) -> ProcessTracksResponse
 
     For each track, creates:
     1. Rip task (input: null, output: ripped path)
-    2. Transcode task (input: ripped path, output: inbox path)
+    2. Transcode task (input: ripped path, output: transcoded path)
     """
     from amphigory.config import get_config
 
@@ -362,11 +362,11 @@ async def process_tracks(request: ProcessTracksRequest) -> ProcessTracksResponse
             output_dir += "/"
         ripped_path = f"{output_dir}{track.output_filename}"
 
-        inbox_dir = str(config.inbox_dir)
+        transcoded_dir = str(config.transcoded_dir)
         # Replace .mkv with .mp4 for transcoded output
         stem = track.output_filename.rsplit(".", 1)[0]
         transcode_filename = f"{stem}.mp4"
-        inbox_path = f"{inbox_dir}/{stem}/{transcode_filename}"
+        transcoded_path = f"{transcoded_dir}/{stem}/{transcode_filename}"
 
         # Create rip task
         rip_id = generate_task_id("rip")
@@ -407,7 +407,7 @@ async def process_tracks(request: ProcessTracksRequest) -> ProcessTracksResponse
             "type": "transcode",
             "created_at": datetime.now().isoformat(),
             "input": ripped_path,
-            "output": inbox_path,
+            "output": transcoded_path,
             "preset": track.preset,
             "disc_fingerprint": request.disc_fingerprint,
             "track_number": track.track_number,
@@ -422,7 +422,7 @@ async def process_tracks(request: ProcessTracksRequest) -> ProcessTracksResponse
             "task_id": transcode_id,
             "type": "transcode",
             "input": ripped_path,
-            "output": inbox_path,
+            "output": transcoded_path,
         })
 
     cleanup_old_tasks(tasks_dir)

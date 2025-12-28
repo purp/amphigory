@@ -80,10 +80,10 @@
                 </div>
             </div>
             <div class="setting-row">
-                <label for="inbox_dir">Plex Inbox</label>
+                <label for="transcoded_dir">Transcoded Media</label>
                 <div class="setting-field">
-                    <input type="text" id="inbox_dir" name="inbox_dir"
-                           class="setting-input" value="{{ directories.inbox_dir }}"
+                    <input type="text" id="transcoded_dir" name="transcoded_dir"
+                           class="setting-input" value="{{ directories.transcoded_dir }}"
                            hx-post="/api/settings/validate/path" hx-trigger="blur" hx-target="next .validation-icon">
                     <span class="validation-icon"></span>
                 </div>
