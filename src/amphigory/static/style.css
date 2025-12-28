@@ -583,7 +583,7 @@ body {
 .col-preset { width: 130px; }
 .col-type { width: 120px; }
 .col-name { min-width: 200px; }
-.col-audio, .col-subs { width: 50px; text-align: center; }
+.col-as { width: 50px; text-align: center; }
 
 .track-type {
     font-size: 0.75rem;

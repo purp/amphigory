@@ -70,8 +70,7 @@
                         <th class="col-preset">Transcoding Preset</th>
                         <th class="col-type">Type</th>
                         <th class="col-name">Track Name</th>
-                        <th class="col-audio">Audio</th>
-                        <th class="col-subs">Subs</th>
+                        <th class="col-as" title="Audio and subtitle track counts">A/S</th>
                         <th class="col-status">Status</th>
                     </tr>
                 </thead>
@@ -580,8 +579,7 @@ function createTrackRowFromDb(track, verification, shouldSelect, showReset) {
                    value="${escapeHtml(track.track_name || '')}"
                    data-track-id="${track.id}">
         </td>
-        <td class="col-audio">${Array.isArray(track.audio_tracks) ? track.audio_tracks.length : (track.audio_tracks || 0)}</td>
-        <td class="col-subs">${Array.isArray(track.subtitle_tracks) ? track.subtitle_tracks.length : (track.subtitle_tracks || 0)}</td>
+        <td class="col-as">${Array.isArray(track.audio_tracks) ? track.audio_tracks.length : (track.audio_tracks || 0)}/${Array.isArray(track.subtitle_tracks) ? track.subtitle_tracks.length : (track.subtitle_tracks || 0)}</td>
         <td class="track-status">
             <span class="status-icon ${rippedStatus}" title="${getStatusTitle('ripped', rippedStatus)}">&#128191;</span>
             <span class="status-icon ${transcodedStatus}" title="${getStatusTitle('transcoded', transcodedStatus)}">&#127916;</span>
@@ -860,8 +858,7 @@ async function displayScanResult(result) {
                        placeholder="${escapeHtml(getDefaultTrackName(track))}"
                        value="${escapeHtml(track.name || '')}">
             </td>
-            <td class="col-audio">${Array.isArray(track.audio_streams) ? track.audio_streams.length : (track.audio_tracks || 0)}</td>
-            <td class="col-subs">${Array.isArray(track.subtitle_streams) ? track.subtitle_streams.length : (track.subtitle_tracks || 0)}</td>
+            <td class="col-as">${Array.isArray(track.audio_streams) ? track.audio_streams.length : (track.audio_streams || 0)}/${Array.isArray(track.subtitle_streams) ? track.subtitle_streams.length : (track.subtitle_streams || 0)}</td>
             <td class="track-status">
                 <span class="status-icon pending" title="Ripped">&#128191;</span>
                 <span class="status-icon pending" title="Transcoded">&#127916;</span>
