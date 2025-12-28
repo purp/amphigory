@@ -518,3 +518,21 @@ class TestSmartOrdering:
         assert ordered[2].number == 4   # 30 min
         assert ordered[3].number == 2   # 15 min
         assert ordered[4].number == 0   # 2 min trailer
+
+
+def test_track_with_no_metadata_classified_as_other():
+    """Track with no chapters, audio, or subs should be 'other' regardless of duration."""
+    track = ScannedTrack(
+        number=1,
+        duration="2:00:00",  # 2 hours - would normally be main_feature
+        size_bytes=10_000_000_000,
+        chapters=0,
+        chapter_count=0,
+        audio_streams=[],
+        subtitle_streams=[],
+        resolution="1920x1080",
+        segment_map="1",
+        is_main_feature_playlist=False,
+    )
+    result = classify_tracks([track])
+    assert result[1].classification == "other"

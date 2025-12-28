@@ -42,6 +42,26 @@ def _parse_duration_to_seconds(duration: str) -> int:
         return 0
 
 
+def _has_minimum_metadata(track: ScannedTrack) -> bool:
+    """Check if track has minimum metadata to be considered for main feature.
+
+    A track must have at least one of: chapters, audio streams, or subtitle streams
+    to be considered as a potential main feature. Tracks with none of these are
+    likely corrupt or incomplete.
+
+    Args:
+        track: The track to check
+
+    Returns:
+        True if track has minimum required metadata, False otherwise
+    """
+    return (
+        track.chapter_count > 0 or
+        len(track.audio_streams) > 0 or
+        len(track.subtitle_streams) > 0
+    )
+
+
 def _calculate_score(track: ScannedTrack) -> float:
     """Calculate weighted score for a track based on multiple factors.
 
@@ -103,6 +123,9 @@ def _classify_extra(
     - Duration is within 10% of main feature AND
     - Size is within 20% of main feature
 
+    Tracks with no metadata (no chapters, audio, or subtitles) are always
+    classified as 'other' regardless of duration.
+
     Otherwise, duration ranges:
     - 90-150 seconds: trailers
     - < 90 seconds: other
@@ -117,6 +140,10 @@ def _classify_extra(
     Returns:
         Classification string
     """
+    # Tracks with no metadata are always classified as 'other'
+    if not _has_minimum_metadata(track):
+        return "other"
+
     duration_seconds = _parse_duration_to_seconds(track.duration)
 
     # Check if this looks like an alternate version of the main feature
@@ -309,10 +336,11 @@ def classify_tracks(tracks: List[ScannedTrack]) -> Dict[int, ClassifiedTrack]:
         main_score = next(score for t, score in scored_tracks if t.number == fpl_main.number)
     else:
         # Find all tracks that could be main features (duration > 1 hour OR chapters > 10)
+        # Must also have minimum metadata (chapters, audio, or subtitles)
         main_candidates = []
         for track, score in scored_tracks:
             duration_seconds = _parse_duration_to_seconds(track.duration)
-            if duration_seconds > 3600 or track.chapter_count > 10:
+            if (duration_seconds > 3600 or track.chapter_count > 10) and _has_minimum_metadata(track):
                 main_candidates.append((track, score))
 
         if main_candidates:
