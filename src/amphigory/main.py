@@ -13,6 +13,7 @@ class QuietAccessFilter(logging.Filter):
     QUIET_PATHS = (
         "/api/disc/status-html",
         "/api/settings/daemons",
+        "/api/tasks/active-html",
         "/ws",
         "/static/",
     )
