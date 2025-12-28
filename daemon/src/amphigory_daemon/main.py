@@ -519,16 +519,30 @@ class AmphigoryDaemon(rumps.App):
                     "Please restart the daemon to apply changes.",
                 )
 
-    def _detect_disc_type(self, volume_path: str) -> str:
-        """Detect disc type from volume structure."""
+    def _detect_disc_type(self, volume_path: str, max_retries: int = 3) -> str:
+        """Detect disc type from volume structure.
+
+        Retries a few times to handle race conditions where the disc
+        filesystem isn't fully visible immediately after mount.
+        """
+        import time
         path = Path(volume_path)
 
-        if (path / "BDMV").exists():
-            return "bluray"
-        elif (path / "VIDEO_TS").exists():
-            return "dvd"
-        else:
-            return "cd"
+        for attempt in range(max_retries):
+            if (path / "BDMV").exists():
+                logger.debug(f"Detected Blu-ray (BDMV found) on attempt {attempt + 1}")
+                return "bluray"
+            elif (path / "VIDEO_TS").exists():
+                logger.debug(f"Detected DVD (VIDEO_TS found) on attempt {attempt + 1}")
+                return "dvd"
+            elif attempt < max_retries - 1:
+                # Wait and retry - filesystem might not be fully visible yet
+                logger.debug(f"No BDMV or VIDEO_TS found, retrying ({attempt + 1}/{max_retries})...")
+                time.sleep(0.5)
+
+        # Final fallback
+        logger.warning(f"No BDMV or VIDEO_TS found after {max_retries} attempts, defaulting to CD")
+        return "cd"
 
     def on_disc_insert(self, device: str, volume_name: str, volume_path: str) -> None:
         """Handle disc insertion."""
