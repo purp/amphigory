@@ -326,29 +326,33 @@ async def get_disc_status_html(request: Request):
                     if known_disc_info:
                         track_count = await disc_repository.get_track_count_by_fingerprint(fingerprint)
 
+                # Format device short name (rdisk8 instead of /dev/rdisk8)
+                device_short = disc_device.replace("/dev/", "") if disc_device else ""
+                drive_id = f"{daemon_id}:{device_short}" if device_short else daemon_id
+
                 if known_disc_info:
                     # Known disc: Show title from DB, track count, "Review Disc" button
                     title = known_disc_info["title"]
-                    disc_label = f"{title} ({fp_short})" if fp_short else title
+                    track_info = f", {track_count} tracks" if track_count else ""
+                    disc_label = f"{title} ({fp_short}{track_info})" if fp_short else f"{title}{track_info}"
 
                     return f'''
                 <div class="disc-detected">
                     <p class="status-message status-success">Disc detected: {disc_label}</p>
-                    <p class="status-detail">{daemon_id} {disc_device}</p>
-                    <p class="status-detail">{track_count} tracks</p>
+                    <p class="status-detail">{drive_id}</p>
                     <a href="/disc" class="btn btn-primary">Review Disc</a>
                 </div>
                 '''
                 elif scan:
                     # Unknown disc but has cached scan: Show scan info with review button
                     scan_track_count = len(scan.get("tracks", []))
-                    disc_label = f"{disc_volume} ({fp_short})" if fp_short else disc_volume
+                    track_info = f", {scan_track_count} tracks" if scan_track_count else ""
+                    disc_label = f"{disc_volume} ({fp_short}{track_info})" if fp_short else f"{disc_volume}{track_info}"
 
                     return f'''
                 <div class="disc-detected">
                     <p class="status-message status-success">Disc detected: {disc_label}</p>
-                    <p class="status-detail">{daemon_id} {disc_device}</p>
-                    <p class="status-detail">{scan_track_count} tracks scanned</p>
+                    <p class="status-detail">{drive_id}</p>
                     <a href="/disc" class="btn btn-primary">Review Tracks</a>
                 </div>
                 '''
@@ -359,7 +363,7 @@ async def get_disc_status_html(request: Request):
                     return f'''
                 <div class="disc-detected">
                     <p class="status-message status-success">Disc detected: {disc_label}</p>
-                    <p class="status-detail">{daemon_id} {disc_device}</p>
+                    <p class="status-detail">{drive_id}</p>
                     <button hx-post="/api/disc/scan" hx-target="#disc-info" class="btn btn-primary">
                         Scan Disc
                     </button>

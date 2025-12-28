@@ -487,8 +487,8 @@ class TestScanCache:
                 assert response.status_code == 200
                 html = response.text
 
-                # Should show track count
-                assert "3 tracks scanned" in html
+                # Should show track count in disc label
+                assert "3 tracks" in html
                 # Should link to disc review page
                 assert 'href="/disc"' in html
                 assert "Review Tracks" in html
