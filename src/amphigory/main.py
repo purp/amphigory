@@ -286,7 +286,8 @@ async def websocket_endpoint(websocket: WebSocket):
                             from amphigory.api.disc_repository import get_disc_by_fingerprint
                             disc = await get_disc_by_fingerprint(fingerprint)
                             if disc:
-                                uvi_logger.info(f"Known disc: {disc['title']} ({disc['year']})")
+                                year_str = disc['year'] or fingerprint[:7]
+                                uvi_logger.info(f"Known disc: {disc['title']} ({year_str})")
 
                         # Broadcast to browser clients
                         broadcast_msg = {
