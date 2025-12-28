@@ -86,8 +86,9 @@ def generate_fingerprint_from_drutil(
         prefix = _get_fingerprint_prefix(disc_type)
         fingerprint = f"{prefix}-{hasher.hexdigest()}"
         logger.info(
-            f"Generated drutil fingerprint: {fingerprint[:20]}... "
-            f"(blocks={block_count}, type={media_type}, tracks={len(track_infos)})"
+            f"Generated drutil fingerprint: {fingerprint} "
+            f"(blocks={block_count}, type={media_type}, sessions={session_count}, "
+            f"tracks={len(track_infos)}, leadout={lead_out}, volume={volume_name})"
         )
         return fingerprint
 
@@ -119,15 +120,21 @@ def _extract_xml_attr(xml: str, element: str, attr: str) -> Optional[str]:
 
 
 def _extract_track_infos(xml: str) -> list[tuple[str, str]]:
-    """Extract (startAddress, size) for each track from trackInfoList."""
+    """Extract (startAddress, size) for each track from trackInfoList.
+
+    Always uses blockAddress/blockCount (not msf) for consistency -
+    cold drives may not report msf attributes, but block counts are
+    always available.
+    """
     import re
     tracks = []
     # Find all trackinfo blocks and extract startAddress and size
     trackinfo_pattern = r'<trackinfo>(.*?)</trackinfo>'
     for match in re.finditer(trackinfo_pattern, xml, re.DOTALL):
         block = match.group(1)
-        start = _extract_xml_attr(block, "startAddress", "msf")
-        size = _extract_xml_attr(block, "size", "msf")
+        # Always use block counts for consistency (msf may not be available on cold drives)
+        start = _extract_xml_attr(block, "startAddress", "blockAddress")
+        size = _extract_xml_attr(block, "size", "blockCount")
         if start and size:
             tracks.append((start, size))
     return tracks

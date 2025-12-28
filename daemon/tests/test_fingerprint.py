@@ -151,14 +151,14 @@ class TestDrutilFingerprint:
 
     def test_includes_track_info_in_fingerprint(self):
         """Fingerprint includes per-track startAddress and size."""
-        # Same block count but different track layouts
+        # Same total block count but different track layouts
         drutil_xml1 = '''
             <usedSpace blockCount="3940480"/>
             <mediaType value="DVD-ROM"/>
             <trackInfoList>
                 <trackinfo>
-                    <startAddress msf="0:00:00"/>
-                    <size msf="875:39:55"/>
+                    <startAddress blockAddress="0"/>
+                    <size blockCount="3940480"/>
                 </trackinfo>
             </trackInfoList>
         '''
@@ -167,8 +167,8 @@ class TestDrutilFingerprint:
             <mediaType value="DVD-ROM"/>
             <trackInfoList>
                 <trackinfo>
-                    <startAddress msf="0:02:00"/>
-                    <size msf="873:39:55"/>
+                    <startAddress blockAddress="150"/>
+                    <size blockCount="3940330"/>
                 </trackinfo>
             </trackInfoList>
         '''
@@ -208,12 +208,12 @@ class TestDrutilFingerprint:
             <usedSpace blockCount="3940480"/>
             <trackInfoList>
                 <trackinfo>
-                    <startAddress msf="0:00:00"/>
-                    <size msf="100:00:00"/>
+                    <startAddress blockAddress="0"/>
+                    <size blockCount="1000000"/>
                 </trackinfo>
                 <trackinfo>
-                    <startAddress msf="100:00:00"/>
-                    <size msf="200:00:00"/>
+                    <startAddress blockAddress="1000000"/>
+                    <size blockCount="2940480"/>
                 </trackinfo>
             </trackInfoList>
         '''
