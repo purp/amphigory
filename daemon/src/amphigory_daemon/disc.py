@@ -107,10 +107,10 @@ class DiscDetector(NSObject):
 
     def handleMount_(self, notification) -> None:
         """Handle mount notification from macOS."""
-        logger.info(f"handleMount_ called with notification: {notification}")
+        logger.debug(f"handleMount_ called with notification: {notification}")
         try:
             user_info = notification.userInfo()
-            logger.info(f"Mount notification userInfo: {user_info}")
+            logger.debug(f"Mount notification userInfo: {user_info}")
             if not user_info:
                 return
 
@@ -120,28 +120,28 @@ class DiscDetector(NSObject):
                 path = str(path.path())
             else:
                 path = user_info.get("NSDevicePath", "")
-            logger.info(f"Mount path extracted: {path}")
+            logger.debug(f"Mount path extracted: {path}")
 
             # Check if this is an optical disc
             # Optical discs typically mount under /Volumes
             if not path.startswith("/Volumes/"):
-                logger.info(f"Ignoring mount - not under /Volumes: {path}")
+                logger.debug(f"Ignoring mount - not under /Volumes: {path}")
                 return
 
             # Try to determine if it's an optical disc
             volume_name = path.split("/")[-1] if path else ""
-            logger.info(f"Volume name: {volume_name}")
+            logger.debug(f"Volume name: {volume_name}")
 
             # Get device path
             device = self._get_device_for_volume(path)
-            logger.info(f"Device for volume {path}: {device}")
+            logger.debug(f"Device for volume {path}: {device}")
             if not device:
-                logger.info(f"No device found for {path} - ignoring mount")
+                logger.debug(f"No device found for {path} - ignoring mount")
                 return
 
             # Check if device is optical (rdisk with specific characteristics)
             is_optical = self._is_optical_device(device)
-            logger.info(f"Is {device} optical? {is_optical}")
+            logger.debug(f"Is {device} optical? {is_optical}")
             if is_optical:
                 logger.info(f"Optical disc inserted: {volume_name} at {device}")
                 self._current_volume_path = path
@@ -153,10 +153,10 @@ class DiscDetector(NSObject):
 
     def handleUnmount_(self, notification) -> None:
         """Handle unmount notification from macOS."""
-        logger.info(f"handleUnmount_ called with notification: {notification}")
+        logger.debug(f"handleUnmount_ called with notification: {notification}")
         try:
             user_info = notification.userInfo()
-            logger.info(f"Unmount notification userInfo: {user_info}")
+            logger.debug(f"Unmount notification userInfo: {user_info}")
             if not user_info:
                 return
             path = user_info.get("NSWorkspaceVolumeURLKey")
