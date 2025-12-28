@@ -54,6 +54,10 @@ async def lifespan(app: FastAPI):
     """Application lifespan handler."""
     _configure_logging()
 
+    # Log the effective logging level
+    root_level = logging.getLogger().getEffectiveLevel()
+    logging.getLogger("uvicorn").info(f"Logging level: {logging.getLevelName(root_level)}")
+
     # Initialize database
     config = get_config()
     app.state.db = Database(config.database_path)

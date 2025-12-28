@@ -582,6 +582,10 @@ class AmphigoryDaemon(rumps.App):
             cache_file = CACHED_CONFIG_FILE
 
         try:
+            # Log the effective logging level
+            root_level = logging.getLogger().getEffectiveLevel()
+            logger.info(f"Logging level: {logging.getLevelName(root_level)}")
+
             # Check if we have a config file
             if not self.is_configured(config_file):
                 logger.info("No configuration found, trying auto-configuration...")
