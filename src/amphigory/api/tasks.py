@@ -319,8 +319,10 @@ async def resume_queue() -> PauseStatusResponse:
     """
     tasks_dir = get_tasks_dir()
     paused_file = tasks_dir / "PAUSED"
-    if paused_file.exists():
+    try:
         paused_file.unlink()
+    except FileNotFoundError:
+        pass  # Already removed - idempotent behavior
     return PauseStatusResponse(paused=False)
 
 
