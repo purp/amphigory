@@ -256,9 +256,13 @@ class AmphigoryDaemon(rumps.App):
     def toggle_pause(self, sender):
         """Toggle pause after current track."""
         if self.pause_mode == PauseMode.AFTER_TRACK:
+            # Resume: clear pause mode and remove PAUSED file
             self.pause_mode = PauseMode.NONE
+            self._remove_paused_file()
             sender.title = "Pause After Track"
         else:
+            # Pause after track: set AFTER_TRACK mode
+            # PAUSED file will be created when current task completes
             self.pause_mode = PauseMode.AFTER_TRACK
             sender.title = "▶ Resume"
         self._update_overlays()
@@ -267,6 +271,7 @@ class AmphigoryDaemon(rumps.App):
     def pause_now(self, sender):
         """Pause immediately after current operation."""
         self.pause_mode = PauseMode.IMMEDIATE
+        self._create_paused_file()
         self._update_overlays()
 
     def open_webapp(self, _):
@@ -338,6 +343,39 @@ class AmphigoryDaemon(rumps.App):
         if not self.daemon_config:
             return False
         return Path(self.daemon_config.webapp_basedir).exists()
+
+    def is_queue_paused(self) -> bool:
+        """
+        Check if the task queue is paused via filesystem marker.
+
+        Checks for PAUSED file in {webapp_basedir}/tasks/PAUSED.
+        This is the source of truth for pause state, shared with the webapp.
+
+        Returns:
+            True if PAUSED file exists, False otherwise
+        """
+        if not self.daemon_config:
+            return False
+        paused_file = Path(self.daemon_config.webapp_basedir) / "tasks" / "PAUSED"
+        return paused_file.exists()
+
+    def _create_paused_file(self) -> None:
+        """Create the PAUSED marker file in tasks directory."""
+        if not self.daemon_config:
+            return
+        paused_file = Path(self.daemon_config.webapp_basedir) / "tasks" / "PAUSED"
+        paused_file.parent.mkdir(parents=True, exist_ok=True)
+        paused_file.touch()
+        logger.info(f"Created pause marker: {paused_file}")
+
+    def _remove_paused_file(self) -> None:
+        """Remove the PAUSED marker file from tasks directory."""
+        if not self.daemon_config:
+            return
+        paused_file = Path(self.daemon_config.webapp_basedir) / "tasks" / "PAUSED"
+        if paused_file.exists():
+            paused_file.unlink()
+            logger.info(f"Removed pause marker: {paused_file}")
 
     def _update_icon(self) -> None:
         """Update the menu bar icon based on current state."""
@@ -762,8 +800,8 @@ class AmphigoryDaemon(rumps.App):
 
         while self._running:
             try:
-                # Check pause mode
-                if self.pause_mode == PauseMode.IMMEDIATE:
+                # Check filesystem pause marker (source of truth, shared with webapp)
+                if self.is_queue_paused():
                     await asyncio.sleep(1)
                     continue
 
@@ -808,6 +846,7 @@ class AmphigoryDaemon(rumps.App):
                 # Check for pause after track
                 if self.pause_mode == PauseMode.AFTER_TRACK:
                     self.pause_mode = PauseMode.IMMEDIATE
+                    self._create_paused_file()
                     self.pause_item.title = "▶ Resume"
 
             except Exception as e:

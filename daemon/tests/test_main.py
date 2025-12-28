@@ -1407,3 +1407,284 @@ class TestOpticalDriveIntegration:
         call_args = mock_ws_server.send_disc_event.call_args
         assert call_args[0][0] == "ejected"
         assert call_args[1]["volume_path"] == "/Volumes/TEST_DISC"
+
+
+class TestFilesystemPauseMarker:
+    """Tests for filesystem-based pause marker (Task 4)."""
+
+    def test_is_queue_paused_returns_true_when_paused_file_exists(self, tmp_path):
+        """is_queue_paused returns True when PAUSED file exists in tasks dir."""
+        from amphigory_daemon.main import AmphigoryDaemon
+
+        daemon = AmphigoryDaemon()
+        daemon.daemon_config = MagicMock()
+        daemon.daemon_config.webapp_basedir = str(tmp_path)
+
+        # Create the tasks directory and PAUSED file
+        tasks_dir = tmp_path / "tasks"
+        tasks_dir.mkdir()
+        (tasks_dir / "PAUSED").touch()
+
+        result = daemon.is_queue_paused()
+
+        assert result is True
+
+    def test_is_queue_paused_returns_false_when_no_paused_file(self, tmp_path):
+        """is_queue_paused returns False when PAUSED file does not exist."""
+        from amphigory_daemon.main import AmphigoryDaemon
+
+        daemon = AmphigoryDaemon()
+        daemon.daemon_config = MagicMock()
+        daemon.daemon_config.webapp_basedir = str(tmp_path)
+
+        # Create the tasks directory but NO PAUSED file
+        tasks_dir = tmp_path / "tasks"
+        tasks_dir.mkdir()
+
+        result = daemon.is_queue_paused()
+
+        assert result is False
+
+    def test_is_queue_paused_returns_false_when_no_config(self):
+        """is_queue_paused returns False when daemon_config is None."""
+        from amphigory_daemon.main import AmphigoryDaemon
+
+        daemon = AmphigoryDaemon()
+        daemon.daemon_config = None
+
+        result = daemon.is_queue_paused()
+
+        assert result is False
+
+    @pytest.mark.asyncio
+    async def test_task_loop_skips_when_paused_file_exists(self, tmp_path):
+        """run_task_loop skips task processing when PAUSED file exists."""
+        from amphigory_daemon.main import AmphigoryDaemon
+
+        daemon = AmphigoryDaemon()
+        daemon.daemon_config = MagicMock()
+        daemon.daemon_config.webapp_basedir = str(tmp_path)
+
+        # Create the tasks directory and PAUSED file
+        tasks_dir = tmp_path / "tasks"
+        tasks_dir.mkdir()
+        (tasks_dir / "PAUSED").touch()
+
+        # Mock task_queue to track whether get_next_task is called
+        mock_task_queue = MagicMock()
+        mock_task_queue.get_next_task = MagicMock(return_value=None)
+        daemon.task_queue = mock_task_queue
+
+        # Run one iteration of the loop
+        daemon._running = True
+
+        async def stop_after_one():
+            await asyncio.sleep(0.1)
+            daemon._running = False
+
+        # Run task loop with a timeout
+        await asyncio.gather(
+            daemon.run_task_loop(),
+            stop_after_one(),
+        )
+
+        # get_next_task should NOT be called because we're paused
+        mock_task_queue.get_next_task.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_task_loop_processes_when_no_paused_file(self, tmp_path):
+        """run_task_loop processes tasks when PAUSED file does not exist."""
+        from amphigory_daemon.main import AmphigoryDaemon
+
+        daemon = AmphigoryDaemon()
+        daemon.daemon_config = MagicMock()
+        daemon.daemon_config.webapp_basedir = str(tmp_path)
+
+        # Create the tasks directory but NO PAUSED file
+        tasks_dir = tmp_path / "tasks"
+        tasks_dir.mkdir()
+
+        # Mock task_queue
+        mock_task_queue = MagicMock()
+        mock_task_queue.get_next_task = MagicMock(return_value=None)
+        daemon.task_queue = mock_task_queue
+
+        # Run one iteration of the loop
+        daemon._running = True
+
+        async def stop_after_one():
+            await asyncio.sleep(0.1)
+            daemon._running = False
+
+        # Run task loop with a timeout
+        await asyncio.gather(
+            daemon.run_task_loop(),
+            stop_after_one(),
+        )
+
+        # get_next_task SHOULD be called because we're not paused
+        mock_task_queue.get_next_task.assert_called()
+
+    def test_menu_pause_creates_paused_file(self, tmp_path):
+        """toggle_pause creates PAUSED file when pausing."""
+        from amphigory_daemon.main import AmphigoryDaemon, PauseMode
+
+        daemon = AmphigoryDaemon()
+        daemon.daemon_config = MagicMock()
+        daemon.daemon_config.webapp_basedir = str(tmp_path)
+
+        # Create tasks directory
+        tasks_dir = tmp_path / "tasks"
+        tasks_dir.mkdir()
+
+        # Ensure not paused initially
+        daemon.pause_mode = PauseMode.NONE
+
+        # Create a mock menu item sender
+        sender = MagicMock()
+        sender.title = "Pause After Track"
+
+        # Toggle pause (this should set AFTER_TRACK mode)
+        daemon.toggle_pause(sender)
+
+        # PAUSED file should NOT exist yet (AFTER_TRACK doesn't immediately pause)
+        assert not (tasks_dir / "PAUSED").exists()
+
+        # Use pause_now to create immediate pause
+        daemon.pause_now(sender)
+
+        # NOW PAUSED file should exist
+        assert (tasks_dir / "PAUSED").exists()
+
+    def test_menu_resume_removes_paused_file(self, tmp_path):
+        """toggle_pause removes PAUSED file when resuming."""
+        from amphigory_daemon.main import AmphigoryDaemon, PauseMode
+
+        daemon = AmphigoryDaemon()
+        daemon.daemon_config = MagicMock()
+        daemon.daemon_config.webapp_basedir = str(tmp_path)
+
+        # Create tasks directory and PAUSED file
+        tasks_dir = tmp_path / "tasks"
+        tasks_dir.mkdir()
+        (tasks_dir / "PAUSED").touch()
+
+        # Set paused state (AFTER_TRACK acts as "paused" for resume)
+        daemon.pause_mode = PauseMode.AFTER_TRACK
+
+        # Create a mock menu item sender
+        sender = MagicMock()
+        sender.title = "Resume"
+
+        # Toggle pause (should resume since we're already in AFTER_TRACK mode)
+        daemon.toggle_pause(sender)
+
+        # PAUSED file should be removed
+        assert not (tasks_dir / "PAUSED").exists()
+        assert daemon.pause_mode == PauseMode.NONE
+
+    def test_pause_now_creates_paused_file(self, tmp_path):
+        """pause_now creates PAUSED file for immediate pause."""
+        from amphigory_daemon.main import AmphigoryDaemon, PauseMode
+
+        daemon = AmphigoryDaemon()
+        daemon.daemon_config = MagicMock()
+        daemon.daemon_config.webapp_basedir = str(tmp_path)
+
+        # Create tasks directory
+        tasks_dir = tmp_path / "tasks"
+        tasks_dir.mkdir()
+
+        # Ensure not paused initially
+        daemon.pause_mode = PauseMode.NONE
+
+        # Create a mock menu item sender
+        sender = MagicMock()
+
+        # Pause now
+        daemon.pause_now(sender)
+
+        # PAUSED file should exist
+        assert (tasks_dir / "PAUSED").exists()
+        assert daemon.pause_mode == PauseMode.IMMEDIATE
+
+    @pytest.mark.asyncio
+    async def test_after_track_creates_paused_file_when_task_completes(self, tmp_path):
+        """AFTER_TRACK mode creates PAUSED file after a task completes."""
+        from amphigory_daemon.main import AmphigoryDaemon, PauseMode
+        from amphigory_daemon.models import ScanTask, ScanResult
+
+        daemon = AmphigoryDaemon()
+        daemon.daemon_config = MagicMock()
+        daemon.daemon_config.webapp_basedir = str(tmp_path)
+
+        # Create tasks directory
+        tasks_dir = tmp_path / "tasks"
+        tasks_dir.mkdir()
+
+        # Set AFTER_TRACK mode
+        daemon.pause_mode = PauseMode.AFTER_TRACK
+
+        # Mock task_queue to return one task then None
+        from datetime import datetime
+        task = ScanTask(id="test-task", type="scan", created_at=datetime.now())
+        mock_task_queue = MagicMock()
+        mock_task_queue.get_next_task = MagicMock(side_effect=[task, None])
+        mock_task_queue.complete_task = MagicMock()
+        daemon.task_queue = mock_task_queue
+
+        # Mock scan handling
+        mock_result = ScanResult(disc_name="TEST", disc_type="dvd", tracks=[])
+        with patch.object(daemon, "_handle_scan_task", new_callable=AsyncMock) as mock_scan:
+            from datetime import datetime
+            from amphigory_daemon.models import TaskResponse, TaskStatus
+            mock_scan.return_value = TaskResponse(
+                task_id="test-task",
+                status=TaskStatus.SUCCESS,
+                started_at=datetime.now(),
+                completed_at=datetime.now(),
+                duration_seconds=5,
+                result=mock_result,
+            )
+
+            # Run one iteration of the loop
+            daemon._running = True
+
+            async def stop_after_task():
+                await asyncio.sleep(0.2)
+                daemon._running = False
+
+            # Run task loop with a timeout
+            await asyncio.gather(
+                daemon.run_task_loop(),
+                stop_after_task(),
+            )
+
+        # After task completion with AFTER_TRACK, PAUSED file should be created
+        assert (tasks_dir / "PAUSED").exists()
+        # And mode should transition to IMMEDIATE
+        assert daemon.pause_mode == PauseMode.IMMEDIATE
+
+    def test_menu_reflects_filesystem_state_on_pause(self, tmp_path):
+        """Menu item title is set correctly when pausing."""
+        from amphigory_daemon.main import AmphigoryDaemon, PauseMode
+
+        daemon = AmphigoryDaemon()
+        daemon.daemon_config = MagicMock()
+        daemon.daemon_config.webapp_basedir = str(tmp_path)
+
+        # Create tasks directory
+        tasks_dir = tmp_path / "tasks"
+        tasks_dir.mkdir()
+
+        # Ensure not paused initially
+        daemon.pause_mode = PauseMode.NONE
+
+        # The pause_item menu item
+        sender = daemon.pause_item
+
+        # Toggle pause
+        daemon.toggle_pause(sender)
+
+        # Menu should show resume option (with play icon)
+        assert sender.title == "▶ Resume"
