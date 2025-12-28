@@ -447,7 +447,7 @@ async def get_disc_status_html(request: Request):
 class UpdateMetadataRequest(BaseModel):
     """Request model for updating disc metadata."""
     fingerprint: str
-    tmdb_id: Optional[str] = None
+    tmdb_id: Optional[int] = None
     imdb_id: Optional[str] = None
     title: Optional[str] = None
     year: Optional[int] = None
