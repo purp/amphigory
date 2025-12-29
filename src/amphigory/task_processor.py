@@ -257,14 +257,13 @@ class TaskProcessor:
         preset_name = task_data.get("preset")
 
         # Auto-select preset based on resolution if not specified
-        ## TODO: raise an exception if we don't have a valid, loadable preset
         if not preset_name:
-            error_msg = f"Transcode failed - no preset name in task)"
+            error_msg = f"Transcode failed - no preset name in task"
             raise Exception(error_msg)
 
         preset_path = self.preset_manager.get_preset_path(preset_category)
         if not preset_path:
-            error_msg = f"Transcode failed - no preset path for '{preset_name}')"
+            error_msg = f"Transcode failed - no preset path for '{preset_name}'"
             raise Exception(error_msg)
 
         # Progress callback wrapper
